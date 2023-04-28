@@ -50,7 +50,7 @@ impl EventHandler for Handler {
         println!("Bot `{}` is up and running!", ready.user.name);
 
         let commands = Command::create_global_application_command(&cx.http, |command| {
-            commands::ping::register(command)
+            commands::version::register(command)
         })
         .await;
 

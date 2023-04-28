@@ -18,8 +18,8 @@ pub fn run(data: &ApplicationCommandInteraction) -> String {
 
     format!(
         "**Economist Bot**, written by @Starkiller645
-        Version `{}`
-        rustc: `{}`, on `{}`",
+Version `{}`
+rustc: `{}`, on `{}`",
         bot_version,
         rustc_info,
         std::env::consts::OS
