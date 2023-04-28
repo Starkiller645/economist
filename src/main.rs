@@ -29,7 +29,7 @@ impl EventHandler for Handler {
             println!("Received command interaction: {:#?}", cmd);
 
             let content = match cmd.data.name.as_str() {
-                "ping" => commands::ping::run(&cmd),
+                "version" => commands::version::run(&cmd),
                 _ => "Not implemented yet :(".to_string()
             };
 
