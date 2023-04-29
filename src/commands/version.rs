@@ -1,3 +1,4 @@
+use crate::CommandResponseObject;
 use rustc_version::{version, version_meta, Channel, Version};
 use serenity::builder::CreateApplicationCommand;
 use serenity::model::prelude::command::CommandOptionType;
@@ -11,17 +12,17 @@ pub fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicatio
         .description("Economist: Get version debug information")
 }
 
-pub fn run(data: &ApplicationCommandInteraction) -> String {
+pub fn run(data: &ApplicationCommandInteraction) -> CommandResponseObject {
     let bot_version = git_version::git_version!();
 
     let rustc_info = version().unwrap();
 
-    format!(
+    CommandResponseObject::text(format!(
         "**Economist Bot**, written by @Starkiller645
 Version `{}`
 rustc: `{}`, on `{}`",
         bot_version,
         rustc_info,
         std::env::consts::OS
-    )
+    ))
 }
