@@ -13,7 +13,10 @@ use serenity::model::id::GuildId;
 use std::env;
 use sqlx::mysql::{MySqlPoolOptions, MySqlPool, MySqlConnection};
 use sqlx::Connection;
+use sqlx::Row;
 use lazy_static::lazy_static;
+use futures::TryStreamExt;
+use shuttle_secrets::SecretStore;
 
 pub mod commands;
 
@@ -196,8 +199,10 @@ impl EventHandler for Handler {
     }
 }
 
-#[tokio::main]
-async fn main() {   
+#[shuttle_runtime::main]
+async fn serenity(
+        #[shuttle_secrets::Secrets] secret_store: SecretStore
+    ) -> shuttle_serenity::ShuttleSerenity {   
     dotenvy::dotenv().expect("Error: Failed reading environment variables");
     println!("Initialising SQL database...");
     sqlx_init().await.unwrap();
@@ -210,6 +215,8 @@ async fn main() {
     if let Err(e) = client.start().await {
         eprintln!("Client: Error: {:?}", e);
     }
+
+    Ok(client.into())
 }
 
 async fn sqlx_init() -> Result<(), sqlx::Error> {
@@ -223,7 +230,8 @@ async fn sqlx_init() -> Result<(), sqlx::Error> {
                 env::var("MYSQL_DATABASE_NAME").unwrap()).as_str())
         .await?;
 
-    sqlx::query("CREATE TABLE IF NOT EXISTS currencies(currency_id TEXT NOT NULL, currency_name TEXT NOT NULL, in_circulation INTEGER NOT NULL, gold_reserve INTEGER NOT NULL, PRIMARY KEY (currency_id(3)));").execute(&pool).await?;
+    sqlx::query!("CREATE TABLE IF NOT EXISTS currencies(currency_id INTEGER NOT NULL AUTO_INCREMENT, currency_code TEXT NOT NULL UNIQUE, currency_name TEXT NOT NULL, in_circulation INTEGER NOT NULL, gold_reserve INTEGER NOT NULL, PRIMARY KEY (currency_id));").execute(&pool).await?;
+    sqlx::query!("CREATE TABLE IF NOT EXISTS transactions(transaction_id INTEGER NOT NULL AUTO_INCREMENT, currency_id INTEGER NOT NULL, delta_circulation INTEGER NOT NULL, delta_reserves INTEGER NOT NULL, PRIMARY KEY (transaction_id), FOREIGN KEY (currency_id) REFERENCES currencies(currency_id))").execute(&pool).await?;
     Ok(())
 }
 
@@ -235,4 +243,16 @@ pub async fn get_sql_connection() -> Result<sqlx::mysql::MySqlConnection, sqlx::
             env::var("MYSQL_DATABASE_URL").unwrap(),
             env::var("MYSQL_DATABASE_NAME").unwrap()).as_str())
     .await
+}
+
+async fn generate_reports() {
+    let mut conn = get_sql_connection().await.unwrap();
+
+    let mut currency_codes = sqlx::query("SELECT currency_code, currency_id FROM currencies;")
+        .fetch(&mut conn);
+
+    while let Some(currency_code) = currency_codes.try_next().await.unwrap() {
+        let code: String = currency_code.try_get("currency_code").unwrap();
+        let id: i64 = currency_code.try_get("currency_id").unwrap();
+    }
 }

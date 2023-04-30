@@ -65,9 +65,11 @@ pub fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicatio
 }
 
 pub async fn run(data: &ApplicationCommandInteraction, custom_data: &std::sync::Mutex<std::collections::HashMap<String, String>>) -> CommandResponseObject {
-    let currency_data = data.data
-        .options.get(0).unwrap()
-        .options.clone();
+    let currency_data = match data.data
+        .options.get(0) {
+            Some(data) => data.options.clone(),
+            None => return CommandResponseObject::text("We caught an unknown event, uh oh!")
+        };
     
     let mut currency_name = String::new();
     let mut currency_code = String::new();
@@ -97,10 +99,10 @@ pub async fn run(data: &ApplicationCommandInteraction, custom_data: &std::sync::
             let mut currency_name = String::new();
             {
                 let mut custom_data = custom_data.lock().unwrap();
-                custom_data.insert("currency_id".into(), currency_code.clone());
+                custom_data.insert("currency_code".into(), currency_code.clone());
             }
 
-            match sqlx::query!("SELECT currency_name FROM currencies WHERE currency_id = ?", currency_code.clone()).fetch_one(&mut get_sql_connection().await.unwrap()).await {
+            match sqlx::query!("SELECT currency_name FROM currencies WHERE currency_code = ?", currency_code.clone()).fetch_one(&mut get_sql_connection().await.unwrap()).await {
                 
                 Ok(data) => {
                     currency_name = data.currency_name;
@@ -145,7 +147,7 @@ pub async fn run(data: &ApplicationCommandInteraction, custom_data: &std::sync::
         "add" => {
 
             let mut sql_conn = get_sql_connection().await.unwrap();
-            match sqlx::query("INSERT INTO currencies(currency_id, currency_name, in_circulation, gold_reserve) VALUES (?, ?, ?, ?)")
+            match sqlx::query("INSERT INTO currencies(currency_code, currency_name, in_circulation, gold_reserve) VALUES (?, ?, ?, ?)")
                 .bind(currency_code.clone())
                 .bind(currency_name.clone())
                 .bind(circulation)
@@ -154,7 +156,7 @@ pub async fn run(data: &ApplicationCommandInteraction, custom_data: &std::sync::
                     Ok(_conn) => {
                         {
                             let mut custom_data = custom_data.lock().unwrap();
-                            custom_data.insert("currency_id".into(), currency_code.clone());
+                            custom_data.insert("currency_code".into(), currency_code.clone());
                             custom_data.insert("currency_name".into(), currency_name.clone());
                             println!("Changed data: {:#?}", custom_data);
                         }
@@ -206,11 +208,11 @@ pub async fn handle_component(data: &MessageComponentInteraction, custom_data: &
             let mut currency_name = String::new();
             {
                 let data = custom_data.lock().unwrap();
-                currency_target = data.get("currency_id").unwrap().clone();
+                currency_target = data.get("currency_code").unwrap().clone();
                 currency_name = data.get("currency_name").unwrap().clone();
             }
             let mut sql_con = get_sql_connection().await.unwrap();
-            sqlx::query("DELETE FROM currencies WHERE currency_id = ?;")
+            sqlx::query("DELETE FROM currencies WHERE currency_code = ?;")
                 .bind(currency_target.clone())
                 .execute(&mut sql_con)
                 .await.unwrap();
