@@ -25,22 +25,38 @@ pub struct CommandResponseObject {
     interactive: bool,
     interactive_data: Option<serenity::builder::CreateComponents>,
     data: Option<String>,
+    feedback: Option<String>,
+    ephemeral: bool
 }
 
 impl CommandResponseObject {
-    pub fn interactive(data: serenity::builder::CreateComponents, prompt: impl Into<String>) -> Self {
+    pub fn interactive(data: serenity::builder::CreateComponents, prompt: impl Into<String>, ephemeral: bool) -> Self {
         CommandResponseObject {
             interactive: true,
             interactive_data: Some(data),
             data: Some(prompt.into()),
+            feedback: None,
+            ephemeral
         }
     }
 
-    pub fn interactive_only(data: serenity::builder::CreateComponents) -> Self {
+    pub fn interactive_only(data: serenity::builder::CreateComponents, ephemeral: bool) -> Self {
         CommandResponseObject {
             interactive: true,
             interactive_data: Some(data),
             data: None,
+            feedback: None,
+            ephemeral
+        }
+    }
+
+    pub fn interactive_with_feedback(data: serenity::builder::CreateComponents, feedback: impl Into<String>, display: impl Into<String>, ephemeral: bool) -> Self {
+        CommandResponseObject {
+            interactive: true,
+            interactive_data: Some(data),
+            data: Some(display.into()),
+            feedback: Some(feedback.into()),
+            ephemeral
         }
     }
 
@@ -49,11 +65,17 @@ impl CommandResponseObject {
             interactive: false,
             interactive_data: None,
             data: Some(data.into()),
+            feedback: None,
+            ephemeral: false
         }
     }
 
     pub fn is_interactive(&self) -> bool {
         self.interactive
+    }
+
+    pub fn is_ephemeral(&self) -> bool {
+        self.ephemeral
     }
 
     pub fn get_text(&self) -> String {
@@ -66,6 +88,14 @@ impl CommandResponseObject {
 
     pub fn get_interactive_data(&mut self) -> &mut serenity::builder::CreateComponents {
         self.interactive_data.as_mut().unwrap()
+    }
+    
+    pub fn get_feedback(&self) -> String {
+        if let Some(text) = self.feedback.clone() {
+            text
+        } else {
+            String::new()
+        }
     }
 }
 
@@ -86,7 +116,7 @@ impl EventHandler for Handler {
     async fn interaction_create(&self, cx: Context, interaction: Interaction) {
         
         if let Interaction::ApplicationCommand(cmd) = interaction {
-            //println!("Received command interaction: {:#?}", cmd);
+            println!("Received command interaction: {:#?}", cmd);
 
             let mut content = match cmd.data.name.as_str() {
                 "version" => commands::version::run(&cmd),
@@ -108,13 +138,64 @@ impl EventHandler for Handler {
                                 .interaction_response_data(|message| message
                                                            .set_components(content.get_interactive_data().clone())
                                                            .content(content.get_text().clone())
-                                                           .ephemeral(true)
+                                                           .ephemeral(content.is_ephemeral())
                                                            .custom_id(cmd.data.name.clone())
                                                            .title(cmd.data.name.clone()))
+                        }).await {
+                            println!("Cannot create interactive response to slash command: {}", e);
+                            eprintln!("Debug dump: {:?}", content.get_interactive_data())
+                        }
+                }
+                false => {
+                    /*if content.data.as_str() == "##DELETE##" {
+                        if let Err(e) = cmd
+                            .create_interaction_response(&cx.http, |response|) {
+                                response
+                                    .kind(InteractionResponseType::)
+                            }
+                    } else {*/
+                        if let Err(e) = cmd
+                            .create_interaction_response(&cx.http, |response| {
+                                response
+                                    .kind(InteractionResponseType::ChannelMessageWithSource)
+                                    .interaction_response_data(|message| message.content(content.get_text()))
+                            })
+                            .await
+                        {
+                            println!("Cannot respond to slash command: {}", e);
+                            eprintln!("Debug dump: {:?}", content.get_text())
+                        }
+                    //}
+                }
+            }
+        } else if let Interaction::MessageComponent(cmd) = interaction {
+            let mut content = match cmd.data.custom_id.as_str() {
+                "button-delete-confirm" | "button-delete-cancel" | "transaction-confirm" | "transaction-cancel" => commands::currency::handle_component(&cmd, &self.custom_data).await,
+                _ => CommandResponseObject::text("Not handled :(")
+            };
+            match cmd.message.delete(&cx.http).await {
+                 Ok(_) => {},
+                 Err(e) => println!("Error occurred deleting message: {e:?}")
+            };
+            match content.is_interactive() {
+                true => {
+                    if let Err(e) = cmd
+                        .create_interaction_response(&cx.http, |response| {
+                            response
+                                .kind(InteractionResponseType::ChannelMessageWithSource)
+                                .interaction_response_data(|message| message
+                                                           .set_components(content.get_interactive_data().clone())
+                                                           .content(content.get_feedback().clone())
+                                                           .ephemeral(content.is_ephemeral())
+                                                           .custom_id(cmd.data.custom_id.clone())
+                                                           .title(cmd.data.custom_id.clone()))
                         }).await {
                             println!("Cannot respond to slash command: {}", e);
                             eprintln!("Debug dump: {:?}", content.get_interactive_data())
                         }
+                    if let Err(e) = cmd.channel_id.say(&cx.http, content.get_text()).await {
+                        println!("Could not post global message: {e:?}")
+                    }
                 }
                 false => {
                     if let Err(e) = cmd
@@ -127,44 +208,8 @@ impl EventHandler for Handler {
                     {
                         println!("Cannot respond to slash command: {}", e);
                     }
-                }
-            }
-        } else if let Interaction::MessageComponent(cmd) = interaction {
-            //println!("Received message component interaction: {:#?}", cmd);
-            let mut content = match cmd.data.custom_id.as_str() {
-                "button-delete-confirm" | "button-delete-cancel" => commands::currency::handle_component(&cmd, &self.custom_data).await,
-                _ => CommandResponseObject::text("Not handled :(")
-            };
-            match cmd.message.delete(&cx.http).await {
-                _ => {}
-            };
-            match content.is_interactive() {
-                true => {
-                    if let Err(e) = cmd
-                        .create_interaction_response(&cx.http, |response| {
-                            response
-                                .kind(InteractionResponseType::ChannelMessageWithSource)
-                                .interaction_response_data(|message| message
-                                                           .set_components(content.get_interactive_data().clone())
-                                                           .content(content.get_text().clone())
-                                                           .ephemeral(true)
-                                                           .custom_id(cmd.data.custom_id.clone())
-                                                           .title(cmd.data.custom_id.clone()))
-                        }).await {
-                            println!("Cannot respond to slash command: {}", e);
-                            eprintln!("Debug dump: {:?}", content.get_interactive_data())
-                        }
-                }
-                false => {
-                    if let Err(e) = cmd
-                        .create_interaction_response(&cx.http, |response| {
-                            response
-                                .kind(InteractionResponseType::ChannelMessageWithSource)
-                                .interaction_response_data(|message| message.content(content.get_text()))
-                        })
-                        .await
-                    {
-                        println!("Cannot respond to slash command: {}", e);
+                    if let Err(e) = cmd.channel_id.say(&cx.http, content.get_text()).await {
+                        println!("Could not post global message: {e:?}")
                     }
                 }
             }

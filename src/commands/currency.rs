@@ -126,14 +126,15 @@ pub async fn run(data: &ApplicationCommandInteraction, custom_data: &std::sync::
         Ok(conn) => conn,
         Err(e) => return CommandResponseObject::interactive(
             CreateComponents::default(),
-            format!("Error: Economist Bot encountered an error connecting to the MySQL database:\n{e:?}")
+            format!("Error: Economist Bot encountered an error connecting to the MySQL database:\n{e:?}"),
+            false
         )
     };
 
     let subcommand_data = match data.data
         .options.get(0) {
             Some(data) => data,
-            None => return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: Economist Bot encountered an error processing a command. A debug dump of the command interaction is below:\n{data:?}"))
+            None => return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: Economist Bot encountered an error processing a command. A debug dump of the command interaction is below:\n{data:?}"), false)
         };
     
     let mut currency_name = String::new();
@@ -211,14 +212,15 @@ pub async fn run(data: &ApplicationCommandInteraction, custom_data: &std::sync::
                         })*/
                     })
                     .clone(),
-            format!("Confirm you really want to delete the currency **{currency_name}**?\n*This is not reversible*")
+            format!("Confirm you really want to delete the currency *{currency_name}*?\n**This is not reversible**"),
+            true
             )
         }
 
         "add" => {
             match add_currency(currency_code.clone(), currency_name.clone(), circulation, gold_reserve, state).await
             {
-                Ok(data) => {
+                Ok(currency_data) => {
                     {
                         let mut custom_data = custom_data.lock().unwrap();
                         custom_data.insert("currency_code".into(), currency_code.clone());
@@ -227,13 +229,14 @@ pub async fn run(data: &ApplicationCommandInteraction, custom_data: &std::sync::
                     }
                     CommandResponseObject::text(
                         format!(
-                                "Created new currency **{0}** *({4})*\nCurrency Code: **{1}**\nInitial circulation: {2}{1}\nInitial gold reserve: {3} ingots",
-                                data.currency_name,
-                                data.currency_code,
-                                data.circulation,
-                                data.reserves,
-                                data.state
-                        )
+                                "{5} created new currency **{0}** (*{4}*)\nCurrency Code: `{1}`\nInitial circulation: `{2}{1}`\nInitial gold reserve: `{3} ingots`",
+                                currency_data.currency_name,
+                                currency_data.currency_code,
+                                currency_data.circulation,
+                                currency_data.reserves,
+                                currency_data.state,
+                                data.user
+                        ),
                     )
                 },
                 Err(e) => {
@@ -266,7 +269,7 @@ pub async fn run(data: &ApplicationCommandInteraction, custom_data: &std::sync::
         "reserve" => {
             let action = match subcommand_data.options.get(0) {
                 Some(a) => a,
-                None => return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: Economist Bot encountered an error processing a command. A debug dump of the command interaction is below:\n{data:?}"))
+                None => return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: Economist Bot encountered an error processing a command. A debug dump of the command interaction is below:\n{data:?}"), true)
             };
             match action.name.as_str() {
                 "add" => {
@@ -310,13 +313,14 @@ pub async fn run(data: &ApplicationCommandInteraction, custom_data: &std::sync::
                                                     .custom_id("transaction-cancel")
                                             })
                                     }).clone(),
-                                format!("**Review gold reserve transaction**\nCurrency: `{}` (*{}*)\nNation/State: *{}*\nGold reserve change: `{amount}`\nReserves after transaction: `{}`", data.currency_code, data.currency_name, data.state, (data.reserves + amount))
+                                format!("**Review gold reserve transaction**\nCurrency: `{}` (*{}*)\nNation/State: *{}*\nGold reserve change: `{amount}`\nReserves after transaction: `{}`", data.currency_code, data.currency_name, data.state, (data.reserves + amount)),
+                                true
                             )
                         },
                         Err(e) => {
                             return match e {
-                                sqlx::Error::RowNotFound => CommandResponseObject::interactive(CreateComponents::default(), format!("Error: the currency code `{}` was not found. Check your spelling and try again.", currency_code)),
-                                _ => CommandResponseObject::interactive(CreateComponents::default(), format!("Error: SQLx Error\n`{:?}`", e))
+                                sqlx::Error::RowNotFound => CommandResponseObject::interactive(CreateComponents::default(), format!("Error: the currency code `{}` was not found. Check your spelling and try again.", currency_code), true),
+                                _ => CommandResponseObject::interactive(CreateComponents::default(), format!("Error: SQLx Error\n`{:?}`", e), true)
                             }
                         }
                     }
@@ -336,9 +340,11 @@ pub async fn handle_component(data: &MessageComponentInteraction, custom_data: &
         Ok(conn) => conn,
         Err(e) => return CommandResponseObject::interactive(
             CreateComponents::default(),
-            format!("Error: Economist Bot encountered an error connecting to the MySQL database:\n{e:?}")
+            format!("Error: Economist Bot encountered an error connecting to the MySQL database:\n{e:?}"),
+            true
         )
     };
+    println!("{data:?}");
     match data.data.custom_id.as_str() {
         "button-delete-confirm" => {
             let currency_target;
@@ -348,29 +354,29 @@ pub async fn handle_component(data: &MessageComponentInteraction, custom_data: &
                 currency_target = match data.get("currency_code") {
                     Some(c) => c.clone(),
                     None => {
-                        return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: this component interaction is invalid!"))
+                        return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: this component interaction is invalid!"), true)
                     }
                 };
                 currency_name = match data.get("currency_name") {
                     Some(c) => c.clone(),
                     None => {
-                        return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: this component interaction is invalid!"))
+                        return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: this component interaction is invalid!"), true)
                     }
                 };
             }
 
-            println!("{data:#?}");
-            match sqlx::query("DELETE FROM currencies WHERE currency_code = ?;")
-                .bind(currency_target.clone())
-                .execute(&mut sql_conn)
+            match remove_currency(currency_target.clone())
                 .await {
-                    Ok(_) => CommandResponseObject::text(format!("{} deleted currency {} ({})", data.user, currency_target, currency_name)),
-                    Err(e) => CommandResponseObject::interactive(CreateComponents::default(), "")
+                    Ok(_) => CommandResponseObject::interactive_with_feedback(CreateComponents::default(), format!("Successfully deleted currency *{currency_name}*"), format!("{} deleted currency *{}* (`{}`)", data.user, currency_name, currency_target), true),
+                    Err(e) => CommandResponseObject::interactive(CreateComponents::default(), format!("Error: SQLx error: \n{e:?}"), true)
             }
         }
         "button-delete-cancel" => {
             CommandResponseObject::text("Not deleting after all :D")
         },
+        "transaction-confirm" => {
+            CommandResponseObject::interactive(CreateComponents::default(), "TESTING", true)
+        }
         _ => CommandResponseObject::text("Unknown component, uh oh!"),
     }
 }
