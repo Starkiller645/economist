@@ -230,8 +230,8 @@ async fn sqlx_init() -> Result<(), sqlx::Error> {
                 env::var("MYSQL_DATABASE_NAME").unwrap()).as_str())
         .await?;
 
-    sqlx::query!("CREATE TABLE IF NOT EXISTS currencies(currency_id INTEGER NOT NULL AUTO_INCREMENT, currency_code TEXT NOT NULL UNIQUE, currency_name TEXT NOT NULL, in_circulation INTEGER NOT NULL, gold_reserve INTEGER NOT NULL, PRIMARY KEY (currency_id));").execute(&pool).await?;
-    sqlx::query!("CREATE TABLE IF NOT EXISTS transactions(transaction_id INTEGER NOT NULL AUTO_INCREMENT, currency_id INTEGER NOT NULL, delta_circulation INTEGER NOT NULL, delta_reserves INTEGER NOT NULL, PRIMARY KEY (transaction_id), FOREIGN KEY (currency_id) REFERENCES currencies(currency_id))").execute(&pool).await?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS currencies(currency_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, currency_code TEXT NOT NULL UNIQUE, currency_name TEXT NOT NULL, state TEXT NOT NULL, circulation BIGINT NOT NULL, reserves BIGINT NOT NULL, PRIMARY KEY (currency_id));").execute(&pool).await?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS transactions(transaction_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, transaction_date DATE NOT NULL, currency_id BIGINT UNSIGNED NOT NULL, delta_circulation BIGINT, delta_reserves BIGINT, PRIMARY KEY (transaction_id), FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE CASCADE)").execute(&pool).await?;
     Ok(())
 }
 
