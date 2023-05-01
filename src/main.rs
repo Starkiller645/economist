@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use tracing::{error, info};
+use tracing::{error, info, debug};
 use serenity::prelude::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -119,18 +119,9 @@ impl Handler {
 
 #[async_trait]
 impl<'a> EventHandler for Handler {
-    async fn message(&self, cx: Context, msg: Message) {
-        if msg.content == "!ping" {
-            if let Err(e) = msg.channel_id.say(&cx.http, "pong!").await {
-                eprintln!("Message: Error: {:?}", e);
-            }
-        }
-    }
-
     async fn interaction_create(&self, cx: Context, interaction: Interaction) {
         
         if let Interaction::ApplicationCommand(cmd) = interaction {
-            println!("Received command interaction: {:#?}", cmd);
             let mut content = match cmd.data.name.as_str() {
                 "version" => commands::version::run(&cmd),
                 "currency" => self.currency_handler.run(&cmd, &self.custom_data).await,
@@ -138,9 +129,6 @@ impl<'a> EventHandler for Handler {
                     CommandResponseObject::text("Not implemented yet :(")
                 }
             };
-
-            println!("Custom data: {:#?}", self.custom_data);
-
 
             match content.is_interactive() {
                 true => {
@@ -155,8 +143,8 @@ impl<'a> EventHandler for Handler {
                                                            .custom_id(cmd.data.name.clone())
                                                            .title(cmd.data.name.clone()))
                         }).await {
-                            println!("Cannot create interactive response to slash command: {}", e);
-                            eprintln!("Debug dump: {:?}", content.get_interactive_data())
+                            error!("Cannot create interactive response to slash command: {}", e);
+                            debug!("Debug dump: {:?}", content.get_interactive_data())
                         }
                 }
                 false => {
@@ -175,20 +163,20 @@ impl<'a> EventHandler for Handler {
                             })
                             .await
                         {
-                            println!("Cannot respond to slash command: {}", e);
-                            eprintln!("Debug dump: {:?}", content.get_text())
+                            debug!("Cannot respond to slash command: {}", e);
+                            debug!("Debug dump: {:?}", content.get_text())
                         }
                     //}
                 }
             }
         } else if let Interaction::MessageComponent(cmd) = interaction {
             let mut content = match cmd.data.custom_id.as_str() {
-                "button-delete-confirm" | "button-delete-cancel" | "transaction-confirm" | "transaction-cancel" => self.currency_handler.handle_component(&cmd, &self.custom_data).await,
+                "button-delete-confirm" | "button-delete-cancel" | "gold-transaction-confirm" | "gold-transaction-cancel" => self.currency_handler.handle_component(&cmd, &self.custom_data).await,
                 _ => CommandResponseObject::text("Not handled :(")
             };
             match cmd.message.delete(&cx.http).await {
                  Ok(_) => {},
-                 Err(e) => println!("Error occurred deleting message: {e:?}")
+                 Err(e) => debug!("Error occurred deleting message: {e:?}")
             };
             match content.is_interactive() {
                 true => {
@@ -203,11 +191,11 @@ impl<'a> EventHandler for Handler {
                                                            .custom_id(cmd.data.custom_id.clone())
                                                            .title(cmd.data.custom_id.clone()))
                         }).await {
-                            println!("Cannot respond to slash command: {}", e);
-                            eprintln!("Debug dump: {:?}", content.get_interactive_data())
+                            debug!("Cannot respond to slash command: {}", e);
+                            debug!("Debug dump: {:?}", content.get_interactive_data())
                         }
                     if let Err(e) = cmd.channel_id.say(&cx.http, content.get_text()).await {
-                        println!("Could not post global message: {e:?}")
+                        debug!("Could not post global message: {e:?}")
                     }
                 }
                 false => {
@@ -219,19 +207,18 @@ impl<'a> EventHandler for Handler {
                         })
                         .await
                     {
-                        println!("Cannot respond to slash command: {}", e);
+                        debug!("Cannot respond to slash command: {}", e);
                     }
                     if let Err(e) = cmd.channel_id.say(&cx.http, content.get_text()).await {
-                        println!("Could not post global message: {e:?}")
+                        debug!("Could not post global message: {e:?}")
                     }
                 }
             }
         }
-        println!("Done handling!");
     }
 
     async fn ready(&self, cx: Context, ready: Ready) {
-        println!("Bot `{}` is up and running!", ready.user.name);
+        info!("Bot `{}` is up and running!", ready.user.name);
 
         /*let command_currency = Command::create_global_application_command(&cx.http, |command| {
             commands::currency::register(command)
@@ -252,8 +239,6 @@ impl<'a> EventHandler for Handler {
                 .create_application_command(|command| commands::currency::CurrencyHandler::register(command))
                 .create_application_command(|command| commands::version::register(command))
         }).await.unwrap();
-
-        println!("Created command `/version`");
     }
 }
 

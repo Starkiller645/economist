@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS transactions(
 	currency_id BIGINT NOT NULL,
 	delta_circulation BIGINT,
 	delta_reserves BIGINT,
+	initiator TEXT NOT NULL,
 	PRIMARY KEY (transaction_id),
 	FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE CASCADE
 );
