@@ -1,3 +1,5 @@
+use anyhow::anyhow;
+use tracing::{error, info};
 use serenity::prelude::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -5,18 +7,16 @@ use serenity::model::{
     channel::Message,
     gateway::Ready
 };
-use serenity::utils::MessageBuilder;
 use serenity::async_trait;
-use serenity::model::application::command::Command;
 use serenity::model::application::interaction::{Interaction, InteractionResponseType};
 use serenity::model::id::GuildId;
-use std::env;
-use sqlx::mysql::{MySqlPoolOptions, MySqlPool, MySqlConnection};
+use sqlx::any::{AnyPoolOptions, AnyPool, AnyConnection};
+use crate::commands::manage::DBManager;
+use crate::commands::currency::CurrencyHandler;
 use sqlx::Connection;
 use sqlx::Row;
-use lazy_static::lazy_static;
-use futures::TryStreamExt;
 use shuttle_secrets::SecretStore;
+use futures::TryStreamExt;
 
 pub mod commands;
 
@@ -100,11 +100,25 @@ impl CommandResponseObject {
 }
 
 struct Handler {
-    custom_data: Mutex<HashMap<String, String>>
+    custom_data: Mutex<HashMap<String, String>>,
+    secrets: SecretStore,
+    currency_handler: CurrencyHandler
+}
+
+impl Handler {
+    fn new(custom_data: Mutex<HashMap<String, String>>, secrets: SecretStore, pool: sqlx::postgres::PgPool) -> Self {
+        let db_manager = DBManager::new(pool);
+        let currency_handler = CurrencyHandler::new(db_manager.clone());
+        Handler {
+            custom_data,
+            secrets,
+            currency_handler
+        }
+    }
 }
 
 #[async_trait]
-impl EventHandler for Handler {
+impl<'a> EventHandler for Handler {
     async fn message(&self, cx: Context, msg: Message) {
         if msg.content == "!ping" {
             if let Err(e) = msg.channel_id.say(&cx.http, "pong!").await {
@@ -117,10 +131,9 @@ impl EventHandler for Handler {
         
         if let Interaction::ApplicationCommand(cmd) = interaction {
             println!("Received command interaction: {:#?}", cmd);
-
             let mut content = match cmd.data.name.as_str() {
                 "version" => commands::version::run(&cmd),
-                "currency" => commands::currency::run(&cmd, &self.custom_data).await,
+                "currency" => self.currency_handler.run(&cmd, &self.custom_data).await,
                 _ => {
                     CommandResponseObject::text("Not implemented yet :(")
                 }
@@ -170,7 +183,7 @@ impl EventHandler for Handler {
             }
         } else if let Interaction::MessageComponent(cmd) = interaction {
             let mut content = match cmd.data.custom_id.as_str() {
-                "button-delete-confirm" | "button-delete-cancel" | "transaction-confirm" | "transaction-cancel" => commands::currency::handle_component(&cmd, &self.custom_data).await,
+                "button-delete-confirm" | "button-delete-cancel" | "transaction-confirm" | "transaction-cancel" => self.currency_handler.handle_component(&cmd, &self.custom_data).await,
                 _ => CommandResponseObject::text("Not handled :(")
             };
             match cmd.message.delete(&cx.http).await {
@@ -232,11 +245,11 @@ impl EventHandler for Handler {
         })
         .await;*/
 
-        let guild_id = GuildId(env::var("GUILD_ID").unwrap().parse().unwrap());
+        let guild_id = GuildId(self.secrets.get("DISCORD_GUILD_ID").unwrap().parse().unwrap());
 
         guild_id.set_application_commands(&cx.http, |commands| {
             commands
-                .create_application_command(|command| commands::currency::register(command))
+                .create_application_command(|command| commands::currency::CurrencyHandler::register(command))
                 .create_application_command(|command| commands::version::register(command))
         }).await.unwrap();
 
@@ -246,26 +259,42 @@ impl EventHandler for Handler {
 
 #[shuttle_runtime::main]
 async fn serenity(
-        #[shuttle_secrets::Secrets] secret_store: SecretStore
-    ) -> shuttle_serenity::ShuttleSerenity {   
-    dotenvy::dotenv().expect("Error: Failed reading environment variables");
-    println!("Initialising SQL database...");
-    sqlx_init().await.unwrap();
-    println!("Done!");
-
-    let discord_token = env::var("DISCORD_TOKEN").expect("Error: DISCORD_TOKEN environment variable not set!");
-    let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
-    let mut client = Client::builder(&discord_token, intents).event_handler(Handler { custom_data: HashMap::new().into() }).await.expect("Error: could not create client");
+        #[shuttle_secrets::Secrets] secret_store: SecretStore,
+        #[shuttle_shared_db::Postgres(local_uri = "{secrets.DATABASE_URL}")] pool: sqlx::postgres::PgPool
+    ) -> shuttle_serenity::ShuttleSerenity {
+    info!("Loading Economist Bot...");
     
-    if let Err(e) = client.start().await {
-        eprintln!("Client: Error: {:?}", e);
-    }
+    //dotenvy::dotenv().expect("Error: Failed reading environment variables");
+
+    let Some(discord_token) = secret_store.get("DISCORD_TOKEN") else {
+        return Err(anyhow!("Failed to get DISCORD_TOKEN from Shuttle secret store").into())
+    };
+
+    info!("Initialising SQL database...");
+
+    let Some(_guild_id) = secret_store.get("DISCORD_GUILD_ID") else {
+        return Err(anyhow!("Failed to get DISCORD_GUILD_ID from Shuttle secret store").into())
+    };
+
+    match sqlx_init(&pool).await {
+        Ok(_) => {},
+        Err(e) => {
+            return Err(anyhow!("Error initialising SQL database: {e:?}").into());
+        }
+    };
+
+    //let discord_token = env::var("DISCORD_TOKEN").expect("Error: DISCORD_TOKEN environment variable not set!");
+    let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
+    let client = match Client::builder(&discord_token, intents).event_handler(Handler::new(HashMap::new().into(), secret_store, pool)).await{
+        Ok(c) => c,
+        Err(e) => return Err(anyhow!("Error creating client: {e:?}").into())
+    };
 
     Ok(client.into())
 }
 
-async fn sqlx_init() -> Result<(), sqlx::Error> {
-    let pool = MySqlPoolOptions::new()
+async fn sqlx_init(pool: &sqlx::postgres::PgPool) -> Result<(), sqlx::Error> {
+    /*let pool = MySqlPoolOptions::new()
         .max_connections(2)
         .connect(format!(
                 "mysql://{0}:{1}@{2}/{3}",
@@ -273,25 +302,28 @@ async fn sqlx_init() -> Result<(), sqlx::Error> {
                 env::var("MYSQL_DATABASE_PASSWORD").unwrap(),
                 env::var("MYSQL_DATABASE_URL").unwrap(),
                 env::var("MYSQL_DATABASE_NAME").unwrap()).as_str())
-        .await?;
+        .await?;*/
 
-    sqlx::query("CREATE TABLE IF NOT EXISTS currencies(currency_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, currency_code TEXT NOT NULL UNIQUE, currency_name TEXT NOT NULL, state TEXT NOT NULL, circulation BIGINT NOT NULL, reserves BIGINT NOT NULL, PRIMARY KEY (currency_id));").execute(&pool).await?;
-    sqlx::query("CREATE TABLE IF NOT EXISTS transactions(transaction_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, transaction_date DATE NOT NULL, currency_id BIGINT UNSIGNED NOT NULL, delta_circulation BIGINT, delta_reserves BIGINT, PRIMARY KEY (transaction_id), FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE CASCADE)").execute(&pool).await?;
+    sqlx::migrate!().run(pool).await?;
+
+    //sqlx::query("CREATE TABLE IF NOT EXISTS currencies(currency_id BIGINT SIGNED NOT NULL AUTO_INCREMENT, currency_code TEXT NOT NULL UNIQUE, currency_name TEXT NOT NULL, state TEXT NOT NULL, circulation BIGINT NOT NULL, reserves BIGINT NOT NULL, PRIMARY KEY (currency_id));").execute(&pool).await?;
+    //sqlx::query("CREATE TABLE IF NOT EXISTS transactions(transaction_id BIGINT SIGNED NOT NULL AUTO_INCREMENT, transaction_date DATE NOT NULL, currency_id BIGINT SIGNED NOT NULL, delta_circulation BIGINT, delta_reserves BIGINT, PRIMARY KEY (transaction_id), FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE CASCADE)").execute(&pool).await?;
     Ok(())
 }
 
-pub async fn get_sql_connection() -> Result<sqlx::mysql::MySqlConnection, sqlx::Error> {
-    sqlx::mysql::MySqlConnection::connect(format!(
+pub async fn get_sql_connection(url: String) -> Result<sqlx::any::AnyConnection, sqlx::Error> {
+    /*sqlx::mysql::MySqlConnection::connect(format!(
             "mysql://{0}:{1}@{2}/{3}",
             env::var("MYSQL_DATABASE_USER").unwrap(),
             env::var("MYSQL_DATABASE_PASSWORD").unwrap(),
             env::var("MYSQL_DATABASE_URL").unwrap(),
             env::var("MYSQL_DATABASE_NAME").unwrap()).as_str())
-    .await
+    .await*/
+    sqlx::any::AnyConnection::connect(url.as_str()).await
 }
 
-async fn generate_reports() {
-    let mut conn = get_sql_connection().await.unwrap();
+async fn generate_reports(database_url: String) {
+    let mut conn = get_sql_connection(database_url).await.unwrap();
 
     let mut currency_codes = sqlx::query("SELECT currency_code, currency_id FROM currencies;")
         .fetch(&mut conn);

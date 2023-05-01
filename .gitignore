@@ -2,4 +2,5 @@
 tags
 Cargo.lock
 .env
+Secrets*.toml
 
