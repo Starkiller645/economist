@@ -188,7 +188,6 @@ impl DBManager {
             state TEXT NOT NULL,
             circulation BIGINT NOT NULL,
             reserves BIGINT NOT NULL,
-            initiator TEXT NOT NULL,
             PRIMARY KEY (currency_id)
         );")
             .execute(&self.pool)
