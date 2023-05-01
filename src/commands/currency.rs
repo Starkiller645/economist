@@ -1,18 +1,17 @@
-use crate::{get_sql_connection, CommandResponseObject};
+use crate::CommandResponseObject;
 use crate::commands::manage::*;
 use serenity::builder::{
-    CreateApplicationCommand, CreateApplicationCommandOption, CreateComponents,
+    CreateApplicationCommand, CreateComponents,
 };
-use serenity::model::application::component::{ButtonStyle, InputTextStyle};
+use serenity::model::application::component::ButtonStyle;
 use serenity::model::application::interaction::message_component::MessageComponentInteraction;
 use serenity::model::prelude::command::CommandOptionType;
 use serenity::model::prelude::interaction::application_command::{
-    ApplicationCommandInteraction, CommandDataOption, CommandDataOptionValue,
+    ApplicationCommandInteraction, CommandDataOptionValue,
 };
-use sqlx::Row;
 use chrono::DateTime;
 use chrono::offset::Utc;
-use tracing::{debug, error, info};
+use tracing::info;
 
 #[derive(sqlx::FromRow)]
 pub struct CurrencyData {
@@ -277,6 +276,12 @@ impl CurrencyHandler {
                                     .required(true)
                             })
                     })
+            })
+            .create_option(|option| {
+                option
+                    .kind(CommandOptionType::SubCommand)
+                    .name("recreate-database")
+                    .description("Recreate the entire currency database, starting from scratch. DANGER, THIS IS NOT REVERSIBLE!!!")
             })
     }
 
@@ -563,7 +568,7 @@ impl CurrencyHandler {
 							warning = "\n**Warning**: You must only use this command if you are *certain* that you have removed the correct amount from circulation by repossessing and destroying it.\nUsing this command without doing so could result in prosecution by the Gold Standard organisation, as it will increase your currency's value illegally!"
 						}
 
-						let mut components = CreateComponents::default()
+						let components = CreateComponents::default()
                                 .create_action_row(|action_row| {
                                     action_row
                                         .create_button(|button| {
@@ -690,6 +695,27 @@ impl CurrencyHandler {
                     CommandResponseObject::text(format!("Couldn't respond to subcommand `modify`: Invalid data"))
                 }
             },
+            "recreate-database" => {
+                CommandResponseObject::interactive(CreateComponents::default()
+                    .create_action_row(|action_row| {
+                        action_row
+                            .create_button(|button| {
+                                button
+                                    .label("Confirm")
+                                    .style(ButtonStyle::Danger)
+                                    .custom_id("recreate-database-confirm")
+                            })
+                            .create_button(|button| {
+                                button
+                                    .label("Cancel")
+                                    .style(ButtonStyle::Primary)
+                                    .custom_id("recreate-database-cancel")
+                            })
+                    }).clone(),
+                    "***DANGER***\nThis command ***CANNOT BE REVERSED***\nIf you click confirm, you will lose access to:\n- **All currencies, their metadata, circulation amount and reserves**\n- **All transaction history, for all currencies, forever**\n- **All current and past currency values, against the Gold Standard and each other**\nOnly use this command if you have been told to by the creator, `@Starkiller645`\nAre you _100% sure_ you want to continue?",
+                    true
+                )
+            },
             other => CommandResponseObject::text(format!("Couldn't respond to subcommand `{}`", other))
         }
     }
@@ -743,7 +769,7 @@ impl CurrencyHandler {
                     transaction_amount = match data.get("transaction_amount") {
                         Some(s) => match s.parse() {
                             Ok(i) => i,
-                            Err(e) => {
+                            Err(_e) => {
                                 return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: this component interaction is invalid!"), true)
                             }
                         },
@@ -792,7 +818,7 @@ impl CurrencyHandler {
                     transaction_amount = match data.get("transaction_amount") {
                         Some(s) => match s.parse() {
                             Ok(i) => i,
-                            Err(e) => {
+                            Err(_e) => {
                                 return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: this component interaction is invalid!"), true)
                             }
                         },
@@ -823,6 +849,15 @@ impl CurrencyHandler {
                 let broadcast = format!("{0} made a gold reserve transaction:\n> Currency: **{1}** `{2}`\n> Nation/State: *{6}*\n> Amount: `{3} ingots`\n> New balance: `{4} ingots`\n> Transaction ID: `#{5:0>5}`", data.user, currency_data.currency_name, transaction_code, transaction_amount, currency_data.reserves, transaction_response.transaction_id, currency_data.state);
 
                 CommandResponseObject::interactive_with_feedback(CreateComponents::default(), feedback, broadcast, true)
+            }
+            "recreate-database-confirm" => {
+                match self.manager.danger_recreate_database().await {
+                    Ok(_) => CommandResponseObject::interactive_with_feedback(CreateComponents::default(), "Well, it's done. Hopefully you meant to do that, otherwise you're going to be in *big* trouble", format!("{0} recreated the entire database. *Any and all* stored data has been lost.", data.user), true),
+                    Err(e) => CommandResponseObject::interactive_with_feedback(CreateComponents::default(), format!("We encountered an error recreating the database: {e:?}.\n*This is probably a good thing...*"), "", true)
+                }
+            },
+            "recreate-database-cancel" => {
+                CommandResponseObject::interactive_with_feedback(CreateComponents::default(), "Cancelled deleting database. This is probably a good thing.", "", true)
             }
             _ => CommandResponseObject::text("Unknown component, uh oh!"),
         }

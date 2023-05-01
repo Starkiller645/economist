@@ -167,4 +167,34 @@ impl DBManager {
 
         Ok(sql_result)
     }
+
+    pub async fn danger_recreate_database(&self) -> Result<(), sqlx::Error> {
+        match sqlx::query("DROP TABLE transactions;
+        DROP TABLE currencies;
+        CREATE TABLE currencies(
+            currency_id BIGSERIAL NOT NULL,
+            currency_code TEXT NOT NULL UNIQUE,
+            currency_name TEXT NOT NULL,
+            state TEXT NOT NULL,
+            circulation BIGINT NOT NULL,
+            reserves BIGINT NOT NULL,
+            initiator TEXT NOT NULL,
+            PRIMARY KEY (currency_id)
+        );
+        CREATE TABLE transactions(
+            transaction_id BIGSERIAL NOT NULL,
+            transaction_date DATE NOT NULL,
+            currency_id BIGINT NOT NULL,
+            delta_circulation BIGINT,
+            delta_reserves BIGINT,
+            initiator TEXT NOT NULL,
+            PRIMARY KEY (transaction_id),
+            FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE CASCADE
+        );")
+            .execute(&self.pool)
+            .await {
+                Ok(_) => Ok(()),
+                Err(e) => Err(e)
+            }
+    }
 }

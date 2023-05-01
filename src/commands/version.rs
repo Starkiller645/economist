@@ -1,10 +1,7 @@
 use crate::CommandResponseObject;
-use rustc_version::{version, version_meta, Channel, Version};
+use rustc_version::version;
 use serenity::builder::CreateApplicationCommand;
-use serenity::model::prelude::command::CommandOptionType;
-use serenity::model::prelude::interaction::application_command::{
-    ApplicationCommandInteraction, CommandDataOption, CommandDataOptionValue,
-};
+use serenity::model::prelude::interaction::application_command::ApplicationCommandInteraction;
 
 pub fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
     command
@@ -12,7 +9,7 @@ pub fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicatio
         .description("Economist: Get version debug information")
 }
 
-pub fn run(data: &ApplicationCommandInteraction) -> CommandResponseObject {
+pub fn run(_data: &ApplicationCommandInteraction) -> CommandResponseObject {
     let bot_version = git_version::git_version!();
 
     let rustc_info = version().unwrap();

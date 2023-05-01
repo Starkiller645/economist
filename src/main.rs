@@ -4,19 +4,15 @@ use serenity::prelude::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use serenity::model::{
-    channel::Message,
     gateway::Ready
 };
 use serenity::async_trait;
 use serenity::model::application::interaction::{Interaction, InteractionResponseType};
 use serenity::model::id::GuildId;
-use sqlx::any::{AnyPoolOptions, AnyPool, AnyConnection};
 use crate::commands::manage::DBManager;
 use crate::commands::currency::CurrencyHandler;
 use sqlx::Connection;
-use sqlx::Row;
 use shuttle_secrets::SecretStore;
-use futures::TryStreamExt;
 
 pub mod commands;
 
@@ -171,7 +167,7 @@ impl<'a> EventHandler for Handler {
             }
         } else if let Interaction::MessageComponent(cmd) = interaction {
             let mut content = match cmd.data.custom_id.as_str() {
-                "button-delete-confirm" | "button-delete-cancel" | "gold-transaction-confirm" | "gold-transaction-cancel" => self.currency_handler.handle_component(&cmd, &self.custom_data).await,
+                "button-delete-confirm" | "button-delete-cancel" | "gold-transaction-confirm" | "gold-transaction-cancel" | "recreate-database-confirm" | "recreate-database-cancel" => self.currency_handler.handle_component(&cmd, &self.custom_data).await,
                 _ => CommandResponseObject::text("Not handled :(")
             };
             match cmd.message.delete(&cx.http).await {
@@ -289,10 +285,26 @@ async fn sqlx_init(pool: &sqlx::postgres::PgPool) -> Result<(), sqlx::Error> {
                 env::var("MYSQL_DATABASE_NAME").unwrap()).as_str())
         .await?;*/
 
-    sqlx::migrate!().run(pool).await?;
-
-    //sqlx::query("CREATE TABLE IF NOT EXISTS currencies(currency_id BIGINT SIGNED NOT NULL AUTO_INCREMENT, currency_code TEXT NOT NULL UNIQUE, currency_name TEXT NOT NULL, state TEXT NOT NULL, circulation BIGINT NOT NULL, reserves BIGINT NOT NULL, PRIMARY KEY (currency_id));").execute(&pool).await?;
-    //sqlx::query("CREATE TABLE IF NOT EXISTS transactions(transaction_id BIGINT SIGNED NOT NULL AUTO_INCREMENT, transaction_date DATE NOT NULL, currency_id BIGINT SIGNED NOT NULL, delta_circulation BIGINT, delta_reserves BIGINT, PRIMARY KEY (transaction_id), FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE CASCADE)").execute(&pool).await?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS currencies(
+        currency_id BIGSERIAL NOT NULL,
+        currency_code TEXT NOT NULL UNIQUE,
+        currency_name TEXT NOT NULL,
+        state TEXT NOT NULL,
+        circulation BIGINT NOT NULL,
+        reserves BIGINT NOT NULL,
+        initiator TEXT NOT NULL,
+        PRIMARY KEY (currency_id)
+    );").execute(pool).await?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS transactions(
+        transaction_id BIGSERIAL NOT NULL,
+        transaction_date DATE NOT NULL,
+        currency_id BIGINT NOT NULL,
+        delta_circulation BIGINT,
+        delta_reserves BIGINT,
+        initiator TEXT NOT NULL,
+        PRIMARY KEY (transaction_id),
+        FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE CASCADE
+    )").execute(pool).await?;
     Ok(())
 }
 
@@ -307,7 +319,7 @@ pub async fn get_sql_connection(url: String) -> Result<sqlx::any::AnyConnection,
     sqlx::any::AnyConnection::connect(url.as_str()).await
 }
 
-async fn generate_reports(database_url: String) {
+/*async fn generate_reports(database_url: String) {
     let mut conn = get_sql_connection(database_url).await.unwrap();
 
     let mut currency_codes = sqlx::query("SELECT currency_code, currency_id FROM currencies;")
@@ -317,4 +329,4 @@ async fn generate_reports(database_url: String) {
         let code: String = currency_code.try_get("currency_code").unwrap();
         let id: i64 = currency_code.try_get("currency_id").unwrap();
     }
-}
+}*/
