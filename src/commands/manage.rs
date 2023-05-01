@@ -211,5 +211,6 @@ impl DBManager {
                 Ok(_) => {},
                 Err(e) => return Err(e)
             };
+        Ok(())
     }
 }
