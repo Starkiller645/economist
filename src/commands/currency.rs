@@ -790,7 +790,7 @@ impl CurrencyHandler {
                 let mut list = "***Currency List***".to_string();
                 for currency in currencies {
                     list += format!(
-                        "\n`{0}` **{1}**      Reserves: `{2} ingots` (_{5}_), Circulation: `{3}{0}`, Value: **{4}**{0} / ingot",
+                        "\n`{0}` **{1}**      Reserves: `{2} ingots` (_{5}_), Circulation: `{3}{0}`, Value: **{4:.3}**{0} / ingot",
                         currency.currency_code,
                         currency.currency_name,
                         currency.reserves,
