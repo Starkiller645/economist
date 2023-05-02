@@ -1,5 +1,6 @@
 use crate::CommandResponseObject;
 use crate::commands::manage::*;
+use crate::commands::query::*;
 use serenity::builder::{
     CreateApplicationCommand, CreateComponents,
 };
@@ -13,17 +14,18 @@ use chrono::DateTime;
 use chrono::offset::Utc;
 use tracing::info;
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, Debug)]
 pub struct CurrencyData {
     pub currency_id: i64,
     pub currency_name: String,
     pub currency_code: String,
     pub circulation: i64,
     pub reserves: i64,
+    pub value: f64,
     pub state: String
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, Debug)]
 pub struct TransactionData {
     pub transaction_id: i64,
     pub transaction_date: DateTime<Utc>,
@@ -33,13 +35,15 @@ pub struct TransactionData {
 }
 
 pub struct CurrencyHandler {
-    manager: DBManager
+    manager: DBManager,
+    query_agent: DBQueryAgent
 }
 
 impl CurrencyHandler {
-    pub fn new(manager: DBManager) -> Self {
+    pub fn new(manager: DBManager, query_agent: DBQueryAgent) -> Self {
         CurrencyHandler {
-            manager
+            manager,
+            query_agent
         }
     }
 
@@ -282,6 +286,30 @@ impl CurrencyHandler {
                     .kind(CommandOptionType::SubCommand)
                     .name("recreate-database")
                     .description("Recreate the entire currency database, starting from scratch. DANGER, THIS IS NOT REVERSIBLE!!!")
+            })
+            .create_option(|option| {
+                option
+                    .kind(CommandOptionType::SubCommand) 
+                    .name("list")
+                    .description("List currencies in circulation, optionally specifying a number")
+                    .create_sub_option(|option| {
+                        option
+                            .kind(CommandOptionType::Integer)
+                            .name("number")
+                            .description("Number of currencies to list")
+                    })
+                    .create_sub_option(|option| {
+                        option
+                            .kind(CommandOptionType::String)
+                            .name("sort")
+                            .description("Attribute to sort currency list by")
+                            .add_string_choice("Name", "name")
+                            .add_string_choice("Nation/State", "state")
+                            .add_string_choice("Currency Code", "code")
+                            .add_string_choice("Gold Reserves", "reserves")
+                            .add_string_choice("Circulation", "circulation")
+                            .add_string_choice("Value", "value")
+                    })
             })
     }
 
@@ -707,7 +735,7 @@ impl CurrencyHandler {
                                     .style(ButtonStyle::Danger)
                                     .custom_id("recreate-database-confirm")
                             })
-                            .create_button(|button| {
+                    .create_button(|button| {
                                 button
                                     .label("Cancel")
                                     .style(ButtonStyle::Primary)
@@ -716,7 +744,63 @@ impl CurrencyHandler {
                     }).clone(),
                     "***DANGER***\nThis command ***CANNOT BE REVERSED***\nIf you click confirm, you will lose access to:\n- **All currencies, their metadata, circulation amount and reserves**\n- **All transaction history, for all currencies, forever**\n- **All current and past currency values, against the Gold Standard and each other**\nOnly use this command if you have been told to by the creator, `@Starkiller645`\nAre you _100% sure_ you want to continue?",
                     true
-                )
+                    )
+            },
+            "list" => {
+                let mut sort_by = CurrencySort::Name;
+                let mut number = 10;
+
+                for option in subcommand_data.options.clone() {
+                    info!("{}", format!("{:?}", option));
+                    match option.name.as_str() {
+                        "sort" => {
+                            if let Some(CommandDataOptionValue::String(sort)) = option.resolved {
+								info!("Sorting by '{}'", sort.as_str());
+                                sort_by = match sort.as_str() {
+                                    "code" => CurrencySort::CurrencyCode,
+                                    "name" => CurrencySort::Name,
+                                    "state" => CurrencySort::State,
+                                    "reserves" => CurrencySort::Reserves,
+                                    "circulation" => CurrencySort::Circulation,
+                                    "value" => CurrencySort::Value,
+                                    _ => CurrencySort::CurrencyCode
+                                };
+                            } else {
+                                tracing::error!("Couldn't get sort type")
+                            }
+                        },
+                        "number" => if let Some(CommandDataOptionValue::Integer(num)) = option.resolved {
+                            if num <= 0 {
+                                return CommandResponseObject::interactive(CreateComponents::default(), format!("Error: can't have a negative number of currencies to return."), true)
+                            } else {
+                                number = num
+                            }
+                        },
+                        _ => {}
+                    }
+                };
+
+                let result = self.query_agent.list_currencies(number, sort_by).await;
+
+                let currencies = match result {
+                    Ok(res) => res,
+                    Err(e) => return CommandResponseObject::interactive(CreateComponents::default(), format!("{e:#?}"), true)
+                };
+
+                let mut list = "***Currency List***".to_string();
+                for currency in currencies {
+                    list += format!(
+                        "\n`{0}` **{1}**      Reserves: `{2} ingots` (_{5}_), Circulation: `{3}{0}`, Value: **{4}**{0} / ingot",
+                        currency.currency_code,
+                        currency.currency_name,
+                        currency.reserves,
+                        currency.circulation,
+                        currency.value,
+                        currency.state
+                    ).as_str()
+                }
+
+                CommandResponseObject::interactive(CreateComponents::default(), list, true)
             },
             other => CommandResponseObject::text(format!("Couldn't respond to subcommand `{}`", other))
         }

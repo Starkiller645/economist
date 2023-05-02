@@ -10,8 +10,9 @@ use serenity::async_trait;
 use serenity::model::application::interaction::{Interaction, InteractionResponseType};
 use serenity::model::id::GuildId;
 use crate::commands::manage::DBManager;
+use crate::commands::query::DBQueryAgent;
 use crate::commands::currency::CurrencyHandler;
-use sqlx::Connection;
+use sqlx::{Connection, Row};
 use shuttle_secrets::SecretStore;
 
 pub mod commands;
@@ -20,7 +21,7 @@ pub mod consts {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CommandResponseObject {
     interactive: bool,
     interactive_data: Option<serenity::builder::CreateComponents>,
@@ -107,8 +108,9 @@ struct Handler {
 
 impl Handler {
     fn new(custom_data: Mutex<HashMap<String, String>>, secrets: SecretStore, pool: sqlx::postgres::PgPool) -> Self {
-        let db_manager = DBManager::new(pool);
-        let currency_handler = CurrencyHandler::new(db_manager.clone());
+        let db_manager = DBManager::new(pool.clone());
+        let query_agent = DBQueryAgent::new(pool);
+        let currency_handler = CurrencyHandler::new(db_manager.clone(), query_agent);
         Handler {
             custom_data,
             secrets,
@@ -144,7 +146,7 @@ impl<'a> EventHandler for Handler {
                                                            .title(cmd.data.name.clone()))
                         }).await {
                             error!("Cannot create interactive response to slash command: {}", e);
-                            debug!("Debug dump: {:?}", content.get_interactive_data())
+                            info!("Debug dump: {:#?}", content)
                         }
                 }
                 false => {
@@ -287,6 +289,10 @@ async fn sqlx_init(pool: &sqlx::postgres::PgPool) -> Result<(), sqlx::Error> {
                 env::var("MYSQL_DATABASE_NAME").unwrap()).as_str())
         .await?;*/
 
+    let postgres_version: String = sqlx::query("SELECT version()").fetch_one(pool).await?.try_get("version")?; 
+
+    info!("PostgreSQL version: {}", postgres_version);
+
     sqlx::query("CREATE TABLE IF NOT EXISTS currencies(
         currency_id BIGSERIAL NOT NULL,
         currency_code TEXT NOT NULL UNIQUE,
@@ -294,7 +300,14 @@ async fn sqlx_init(pool: &sqlx::postgres::PgPool) -> Result<(), sqlx::Error> {
         state TEXT NOT NULL,
         circulation BIGINT NOT NULL,
         reserves BIGINT NOT NULL,
-        initiator TEXT NOT NULL,
+        value DOUBLE PRECISION GENERATED ALWAYS AS (
+            CASE WHEN reserves <= 0 THEN 0
+                 WHEN circulation <= 0 THEN 0 
+                 ELSE (
+                     CAST(reserves AS DOUBLE PRECISION) / CAST(circulation AS DOUBLE PRECISION)
+                 ) 
+                 END
+            ) STORED,
         PRIMARY KEY (currency_id)
     );").execute(pool).await?;
     sqlx::query("CREATE TABLE IF NOT EXISTS transactions(

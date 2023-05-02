@@ -35,6 +35,7 @@ impl DBManager {
                         currency_name,
                         currency_code,
                         circulation,
+                        value: gold_reserve as f64 / circulation as f64,
                         reserves: gold_reserve,
                         state
                     })   
@@ -181,15 +182,23 @@ impl DBManager {
                 Ok(_) => {},
                 Err(e) => return Err(e)
             };
-        match sqlx::query("CREATE TABLE currencies(
-            currency_id BIGSERIAL NOT NULL,
-            currency_code TEXT NOT NULL UNIQUE,
-            currency_name TEXT NOT NULL,
-            state TEXT NOT NULL,
-            circulation BIGINT NOT NULL,
-            reserves BIGINT NOT NULL,
-            PRIMARY KEY (currency_id)
-        );")
+        match sqlx::query("CREATE TABLE IF NOT EXISTS currencies(
+        currency_id BIGSERIAL NOT NULL,
+        currency_code TEXT NOT NULL UNIQUE,
+        currency_name TEXT NOT NULL,
+        state TEXT NOT NULL,
+        circulation BIGINT NOT NULL,
+        reserves BIGINT NOT NULL,
+        value DOUBLE PRECISION GENERATED ALWAYS AS (
+            CASE WHEN reserves <= 0 THEN 0
+                 WHEN circulation <= 0 THEN 0 
+                 ELSE (
+                     CAST(reserves AS DOUBLE PRECISION) / CAST(circulation AS DOUBLE PRECISION)
+                 ) 
+                 END
+            ) STORED,
+        PRIMARY KEY (currency_id)
+    );")
             .execute(&self.pool)
             .await {
                 Ok(_) => {},
