@@ -167,7 +167,7 @@ impl<'a> EventHandler for Handler {
             }
         } else if let Interaction::MessageComponent(cmd) = interaction {
             let mut content = match cmd.data.custom_id.as_str() {
-                "button-delete-confirm" | "button-delete-cancel" | "gold-transaction-confirm" | "gold-transaction-cancel" | "recreate-database-confirm" | "recreate-database-cancel" => self.currency_handler.handle_component(&cmd, &self.custom_data).await,
+                "button-delete-confirm" | "button-delete-cancel" | "gold-transaction-confirm" | "gold-transaction-cancel" | "currency-transaction-confirm" | "currency-transaction-cancel" | "recreate-database-confirm" | "recreate-database-cancel" => self.currency_handler.handle_component(&cmd, &self.custom_data).await,
                 _ => CommandResponseObject::text("Not handled :(")
             };
             match cmd.message.delete(&cx.http).await {

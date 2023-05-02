@@ -363,7 +363,7 @@ impl CurrencyHandler {
                             })*/
                         })
                         .clone(),
-                format!("Confirm you really want to delete the currency *{currency_name}*?\n**This is not reversible**"),
+                format!("Confirm you really want to delete the currency **{currency_name}** `{currency_code}`?\n*This is not reversible*"),
                 true
                 )
             }
@@ -393,10 +393,12 @@ impl CurrencyHandler {
                         let error_message = format!("{:?}", e);
                         if let Some(error) = e.into_database_error() {
                             match error.downcast_ref::<sqlx::postgres::PgDatabaseError>().code() {
-                                "23505" => CommandResponseObject::text(
+                                "23505" => CommandResponseObject::interactive(
+                                    CreateComponents::default(),
                                     format!(
                                         "Error creating currency **{currency_name}**:\nThe currency code `{currency_code}` is already in use, please choose another one!"
-                                    )
+                                    ),
+                                    true
                                 ),
                                 err => CommandResponseObject::text(
                                     format!(
@@ -744,7 +746,7 @@ impl CurrencyHandler {
 
                 match self.manager.remove_currency(currency_target.clone())
                     .await {
-                        Ok(_) => CommandResponseObject::interactive_with_feedback(CreateComponents::default(), format!("Successfully deleted currency *{currency_name}*"), format!("{} deleted currency **{}** `{}`", data.user, currency_name, currency_target), true),
+                        Ok(_) => CommandResponseObject::interactive_with_feedback(CreateComponents::default(), format!("Successfully deleted currency **{currency_name}** `{currency_target}`"), format!("{} deleted currency **{}** `{}`", data.user, currency_name, currency_target), true),
                         Err(e) => CommandResponseObject::interactive(CreateComponents::default(), format!("Error: SQLx error: \n{e:?}"), true)
                 }
             }
@@ -845,8 +847,8 @@ impl CurrencyHandler {
                     Err(e) => return CommandResponseObject::interactive_with_feedback(CreateComponents::default(), format!("Error while completing currency balance check: `{e:?}`"), "", true)
                 };
 
-                let feedback = format!("Successfully completed gold reserve transaction!");
-                let broadcast = format!("{0} made a gold reserve transaction:\n> Currency: **{1}** `{2}`\n> Nation/State: *{6}*\n> Amount: `{3} ingots`\n> New balance: `{4} ingots`\n> Transaction ID: `#{5:0>5}`", data.user, currency_data.currency_name, transaction_code, transaction_amount, currency_data.reserves, transaction_response.transaction_id, currency_data.state);
+                let feedback = format!("Successfully completed currency circulation transaction!");
+                let broadcast = format!("{0} made a currency circulation transaction:\n> Currency: **{1}** `{2}`\n> Nation/State: *{6}*\n> Amount: `{3}{2}`\n> New balance: `{4}{2}`\n> Transaction ID: `#{5:0>5}`", data.user, currency_data.currency_name, transaction_code, transaction_amount, currency_data.circulation, transaction_response.transaction_id, currency_data.state);
 
                 CommandResponseObject::interactive_with_feedback(CreateComponents::default(), feedback, broadcast, true)
             }
