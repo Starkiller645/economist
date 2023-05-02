@@ -16,6 +16,10 @@ use shuttle_secrets::SecretStore;
 
 pub mod commands;
 
+pub mod consts {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 #[derive(Clone)]
 pub struct CommandResponseObject {
     interactive: bool,

@@ -1,3 +1,4 @@
+use crate::consts::*;
 use crate::CommandResponseObject;
 use rustc_version::version;
 use serenity::builder::{CreateApplicationCommand, CreateComponents};
@@ -25,17 +26,21 @@ pub fn run(data: &ApplicationCommandInteraction) -> CommandResponseObject {
 
     match subcommand_data.name.as_str() {
         "version" => {
-            let bot_version = git_version::git_version!();
+            let bot_version = match GIT_VERSION {
+                Some(version) => version,
+                None => PKG_VERSION,
+            };
 
             let rustc_info = version().unwrap();
+            let os = std::env::consts::OS;
 
             CommandResponseObject::text(format!(
                 "**Economist Bot**, written by @Starkiller645
-        Version `{}`
-        rustc: `{}`, on `{}`",
-                bot_version,
-                rustc_info,
-                std::env::consts::OS
+> Version: **{bot_version}**
+> Build time: `{BUILT_TIME_UTC}`
+> Target: `{TARGET}`
+> Host: `{HOST}`
+> rustc: `{rustc_info}`, on `{os}`, `{CFG_ENV}` toolchain",
             ))
         }
         _ => CommandResponseObject::text(""),
