@@ -119,7 +119,7 @@ impl<'a> EventHandler for Handler {
         
         if let Interaction::ApplicationCommand(cmd) = interaction {
             let mut content = match cmd.data.name.as_str() {
-                "version" => commands::version::run(&cmd),
+                "economist" => commands::meta::run(&cmd),
                 "currency" => self.currency_handler.run(&cmd, &self.custom_data).await,
                 _ => {
                     CommandResponseObject::text("Not implemented yet :(")
@@ -221,10 +221,8 @@ impl<'a> EventHandler for Handler {
         })
         .await;
 
-        println!("Created command `/currency`");
-
-        let command_version = Command::create_global_application_command(&cx.http, |command| {
-            commands::version::register(command)
+        let command_meta = Command::create_global_application_command(&cx.http, |command| {
+            commands::meta::register(command)
         })
         .await;*/
 
@@ -233,7 +231,7 @@ impl<'a> EventHandler for Handler {
         guild_id.set_application_commands(&cx.http, |commands| {
             commands
                 .create_application_command(|command| commands::currency::CurrencyHandler::register(command))
-                .create_application_command(|command| commands::version::register(command))
+                .create_application_command(|command| commands::meta::register(command))
         }).await.unwrap();
     }
 }
