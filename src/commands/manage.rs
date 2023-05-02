@@ -109,8 +109,8 @@ impl DBManager {
             };
         
         let transaction_date = Utc::now();
-        let prev_reserves = currency_data.reserves;
-        let new_reserves = prev_reserves + amount;
+        let prev_circulation = currency_data.circulation;
+        let new_circulation = prev_circulation + amount;
 
         let transaction_id: i64 = match sqlx::query("INSERT INTO transactions(transaction_date, currency_id, delta_circulation, initiator) VALUES ($1, $2, $3, $4) RETURNING transaction_id")
             .bind(transaction_date)
@@ -129,7 +129,7 @@ impl DBManager {
             };
 
         match sqlx::query("UPDATE currencies SET circulation = $1 WHERE currency_id = $2")
-            .bind(new_reserves)
+            .bind(new_circulation)
             .bind(currency_data.currency_id)
             .execute(&self.pool)
             .await {
@@ -141,8 +141,8 @@ impl DBManager {
             transaction_id,
             transaction_date,
             currency_code,
-            delta_reserves: Some(amount),
-            delta_circulation: None
+            delta_reserves: None,
+            delta_circulation: Some(amount)
         })
     }
 

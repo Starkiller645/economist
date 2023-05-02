@@ -588,7 +588,7 @@ impl CurrencyHandler {
 
                 match self.manager.get_currency_data(currency_code.clone()).await {
                     Ok(data) => {
-                        let new_reserves = data.reserves + amount;
+                        let new_circulation = data.circulation + amount;
 						let mut warning = "";
 						let mut confirm_style = ButtonStyle::Primary;
 						let mut cancel_style = ButtonStyle::Secondary;
@@ -631,7 +631,7 @@ impl CurrencyHandler {
 
                         CommandResponseObject::interactive(
                             components,
-                            format!("**Review currency circulation transaction**\n> Currency: **{0}** `{1}`\n> Nation/State: *{2}*\n> Amount: `{amount}{1}`\n> New balance: `{3}{1}`{4}", data.currency_name, data.currency_code, data.state, new_reserves, warning),
+                            format!("**Review currency circulation transaction**\n> Currency: **{0}** `{1}`\n> Nation/State: *{2}*\n> Amount: `{amount}{1}`\n> New balance: `{3}{1}`{4}", data.currency_name, data.currency_code, data.state, new_circulation, warning),
                             true
                         )
                     },
