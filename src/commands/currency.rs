@@ -787,10 +787,38 @@ impl CurrencyHandler {
                     Err(e) => return CommandResponseObject::interactive(CreateComponents::default(), format!("{e:#?}"), true)
                 };
 
-                let mut list = "***Currency List***".to_string();
+                let mut currency_desc = "Currency Name";
+                let mut code_desc = "Code";
+                let mut state_desc = "Nation/State";
+                let mut reserve_desc = "Gold Reserves";
+                let mut circulation_desc = "Circulation";
+                let mut value_desc = "Value";
+
+                match sort_by {
+                    CurrencySort::Name => currency_desc = "\u{001b}[1;32mCurrency Name\u{001b}[0m",
+                    CurrencySort::CurrencyCode => code_desc = "\u{001b}[1;32mCode\u{001b}[0m",
+                    CurrencySort::State => state_desc = "\u{001b}[1;32mNation/State\u{001b}[0m",
+                    CurrencySort::Reserves => reserve_desc = "\u{001b}[1;32mGold Reserves\u{001b}[0m",
+                    CurrencySort::Circulation => circulation_desc = "\u{001b}[1;32mCirculation\u{001b}[0m",
+                    CurrencySort::Value => value_desc = "\u{001b}[1;32mValue\u{001b}[0m"
+                };
+
+                let mut list = "**Currency List**\n```ansi\n┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓".to_string();
+                list += format!("\n┃{code_desc} and {currency_desc}              ┃{state_desc}                  ┃{reserve_desc} ┃{circulation_desc}┃{value_desc}            ┃").as_str();
+                list += "\n┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╋━━━━━━━━━━━━━━╋━━━━━━━━━━━╋━━━━━━━━━━━━━━━━━┫";
+
+                // Currency name: 40 chars
+                // Currency code: 5 chars (including [])
+                // Currency state: 40 chars
+                // Reserves: 14 chars
+                // Circulation: 14 chars
+                // Value: 19 chars
+                // Lines: 7 chars
+                // Total: 139 chars
+
                 for currency in currencies {
                     list += format!(
-                        "\n`{0}` **{1}**      Reserves: `{2} ingots` (_{5}_), Circulation: `{3}{0}`, Value: **{4:.3}**{0} / ingot",
+                        "\n┃[\u{001b}[36m{0: <3.3}\u{001b}[0m] \u{001b}[1m{1: <30.30}\u{001b}[0m┃{5: <30.30}┃\u{001b}[1;33m{2: >7.7}\u{001b}[0m ingots┃\u{001b}[1;34m{3: >7.7}\u{001b}[0m {0}┃\u{001b}[1;35m{4: <3.3}\u{001b}[0m {0} / ingot┃",
                         currency.currency_code,
                         currency.currency_name,
                         currency.reserves,
@@ -799,6 +827,8 @@ impl CurrencyHandler {
                         currency.state
                     ).as_str()
                 }
+
+                list += "\n┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━┻━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━┛```";
 
                 CommandResponseObject::interactive(CreateComponents::default(), list, true)
             },

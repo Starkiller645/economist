@@ -16,6 +16,7 @@ impl DBQueryAgent {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum CurrencySort {
     Name,
     CurrencyCode,
