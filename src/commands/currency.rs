@@ -311,6 +311,21 @@ impl CurrencyHandler {
                             .add_string_choice("Value", "value")
                     })
             })
+            .create_option(|option| {
+                option
+                    .kind(CommandOptionType::SubCommand)
+                    .name("view")
+                    .description("View detailed information about a currency")
+                    .create_sub_option(|option| {
+                        option
+                            .kind(CommandOptionType::String)
+                            .name("code")
+                            .description("Three-letter currency code to view")
+                            .max_length(3)
+                            .min_length(3)
+                            .required(true)
+                    })
+            })
     }
 
     pub async fn run(&self, data: &ApplicationCommandInteraction, custom_data: &std::sync::Mutex<std::collections::HashMap<String, String>>) -> CommandResponseObject {
@@ -832,6 +847,39 @@ impl CurrencyHandler {
 
                 CommandResponseObject::interactive(CreateComponents::default(), list, true)
             },
+            "view" => {
+                let mut currency_code = None;
+                for option in subcommand_data.options.clone() {
+                    match option.name.as_str() {
+                        "code" => currency_code = if let Some(CommandDataOptionValue::String(code)) = option.resolved {
+                            Some(code)
+                        } else {
+                            None
+                        },
+                        _ => {}
+                    }
+                };
+
+                match currency_code {
+                    None => CommandResponseObject::interactive(CreateComponents::default(), format!("Couldn't respond to subcommand `view`: No currency code specified!"), true),
+                    Some(code) => match self.query_agent.get_currency_data(code).await {
+                        Ok(data) => CommandResponseObject::interactive(
+                            CreateComponents::default(),
+                            format!(
+                                "`{0}` **{1}**\n> Nation/State: _{2}_\n> Reserves: `{3} ingots`\n> Circulation: `{4} {0}`\n> Value: `{5:.3} {0} / ingot`",
+                                data.currency_code,
+                                data.currency_name,
+                                data.state,
+                                data.reserves,
+                                data.circulation,
+                                data.value
+                            ),
+                            true
+                        ),
+                        Err(e) => CommandResponseObject::interactive(CreateComponents::default(), format!("Error looking up currency: {:?}", e), false)
+                    }
+                }
+            }
             other => CommandResponseObject::text(format!("Couldn't respond to subcommand `{}`", other))
         }
     }

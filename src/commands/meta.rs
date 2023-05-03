@@ -27,7 +27,13 @@ pub fn run(data: &ApplicationCommandInteraction) -> CommandResponseObject {
     match subcommand_data.name.as_str() {
         "version" => {
             let bot_version = match GIT_VERSION {
-                Some(version) => version,
+                Some(version) => {
+                    if version.contains("v") && version.contains(".") {
+                        version
+                    } else {
+                        PKG_VERSION
+                    }
+                }
                 None => PKG_VERSION,
             };
 
