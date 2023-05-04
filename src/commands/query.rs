@@ -1,4 +1,4 @@
-use crate::commands::currency::{CurrencyData, TransactionData};
+use crate::types::*;
 use sqlx::{Row, postgres::PgPool};
 use chrono::offset::Utc;
 use futures::TryStreamExt;
@@ -78,5 +78,23 @@ impl DBQueryAgent {
             i += 1;
         }
         Ok(currency_vec)
+    }
+
+    pub async fn get_reports(&self, currency_code: String) -> Result<Vec<RecordData>, sqlx::Error> {
+        let currency_id = match self.get_currency_data(currency_code).await {
+            Ok(data) => data.currency_id,
+            Err(e) => return Err(e)
+        };
+
+        let mut return_vec = vec![];
+        let mut stream = sqlx::query_as("SELECT * FROM records WHERE currency_id = $1 ORDER BY record_date;")
+            .bind(currency_id)
+            .fetch(&self.pool);
+
+        while let Some(row) = stream.try_next().await? {
+            return_vec.push(row);
+        }
+
+        Ok(return_vec)
     }
 }

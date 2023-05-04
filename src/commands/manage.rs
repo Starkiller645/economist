@@ -1,6 +1,6 @@
-use crate::commands::currency::{CurrencyData, TransactionData};
+use crate::types::*;
 use sqlx::{Row, postgres::PgPool};
-use chrono::offset::Utc;
+use chrono::{DateTime, offset::Utc};
 
 #[derive(Clone)]
 pub struct DBManager {
@@ -146,16 +146,6 @@ impl DBManager {
         })
     }
 
-    pub async fn get_currency_data(&self, currency_code: String) -> Result<CurrencyData, sqlx::Error> {
-        match sqlx::query_as("SELECT * FROM currencies WHERE currency_code = $1")
-            .bind(currency_code)
-            .fetch_one(&self.pool)
-            .await {
-                Ok(row) => Ok(row),
-                Err(e) => Err(e)
-            }
-    }
-
     pub async fn modify_currency_meta(&self, currency_code: String, kind: ModifyMetaType, data: String) -> Result<CurrencyData, sqlx::Error> {
         let sql_result = sqlx::query_as(format!("UPDATE currencies SET {} = $1 WHERE currency_code = $2 RETURNING *", match kind {
                 ModifyMetaType::Name => "currency_name",
@@ -219,6 +209,37 @@ impl DBManager {
                 Ok(_) => {},
                 Err(e) => return Err(e)
             };
+
+        match sqlx::query("CREATE TABLE IF NOT EXISTS records(
+        record_id BIGSERIAL NOT NULL,
+        record_date DATE NOT NULL,
+        currency_id BIGINT NOT NULL,
+        opening_value DOUBLE PRECISION,
+        closing_value DOUBLE PRECISION,
+        delta_value DOUBLE PRECISION GENERATED ALWAYS AS (closing_value - opening_value) STORED,
+        growth SMALLINT GENERATED ALWAYS AS (
+            CASE WHEN (closing_value - opening_value) = 0 THEN 0
+                 WHEN (closing_value - opening_value) > 0 THEN 1
+                 ELSE -1
+                 END
+            ) STORED,
+        PRIMARY KEY (record_id),
+        FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE CASCADE
+        )
+    ").execute(&self.pool).await {
+        Ok(_) => {},
+        Err(e) => return Err(e)
+    };
         Ok(())
+    }
+
+    pub async fn insert_record(&self, currency_id: i64, opening_value: f64, closing_value: f64) -> Result<RecordData, sqlx::Error> {
+        let todays_date: chrono::NaiveDate = Utc::now().date_naive();
+        sqlx::query_as("INSERT INTO records(record_date, currency_id, opening_value, closing_value) VALUES ($1, $2, $3, $4) RETURNING *")
+            .bind(todays_date)
+            .bind(currency_id)
+            .bind(opening_value)
+            .bind(closing_value)
+            .fetch_one(&self.pool).await
     }
 }

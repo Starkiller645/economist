@@ -27,3 +27,5 @@ shuttle-secrets = "0.15.0"
 tracing = "0.1.37"
 chrono = "0.4.24"
 shuttle-shared-db = { version = "0.15.0", features = ["postgres", "sqlx"] }
+serde = { version = "1.0.160", features = ["derive"] }
+shuttle-persist = "0.15.0"

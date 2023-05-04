@@ -12,10 +12,15 @@ use serenity::model::id::GuildId;
 use crate::commands::manage::DBManager;
 use crate::commands::query::DBQueryAgent;
 use crate::commands::currency::CurrencyHandler;
+use crate::workers::records::*;
 use sqlx::{Connection, Row};
 use shuttle_secrets::SecretStore;
+use shuttle_persist::PersistInstance;
+use tokio::task;
 
 pub mod commands;
+pub mod workers;
+pub mod types;
 
 pub mod consts {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
@@ -245,7 +250,8 @@ impl<'a> EventHandler for Handler {
 #[shuttle_runtime::main]
 async fn serenity(
         #[shuttle_secrets::Secrets] secret_store: SecretStore,
-        #[shuttle_shared_db::Postgres(local_uri = "{secrets.DATABASE_URL}")] pool: sqlx::postgres::PgPool
+        #[shuttle_shared_db::Postgres(local_uri = "{secrets.DATABASE_URL}")] pool: sqlx::postgres::PgPool,
+        #[shuttle_persist::Persist] persist_instance: PersistInstance
     ) -> shuttle_serenity::ShuttleSerenity {
     info!("Loading Economist Bot...");
     
@@ -267,6 +273,12 @@ async fn serenity(
             return Err(anyhow!("Error initialising SQL database: {e:?}").into());
         }
     };
+
+    info!("Starting workers...");
+    //let persistance = persist_instance.clone();
+    let pool_clone = pool.clone();
+    let (tx, rx) = futures::channel::mpsc::channel(8);
+    task::spawn(record_worker(persist_instance, pool_clone, rx));
 
     //let discord_token = env::var("DISCORD_TOKEN").expect("Error: DISCORD_TOKEN environment variable not set!");
     let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
@@ -312,7 +324,7 @@ async fn sqlx_init(pool: &sqlx::postgres::PgPool) -> Result<(), sqlx::Error> {
     );").execute(pool).await?;
     sqlx::query("CREATE TABLE IF NOT EXISTS transactions(
         transaction_id BIGSERIAL NOT NULL,
-        transaction_date DATE NOT NULL,
+        transaction_date TIMESTAMP WITHOUT TIME ZONE NOT NULL,
         currency_id BIGINT NOT NULL,
         delta_circulation BIGINT,
         delta_reserves BIGINT,
@@ -320,6 +332,23 @@ async fn sqlx_init(pool: &sqlx::postgres::PgPool) -> Result<(), sqlx::Error> {
         PRIMARY KEY (transaction_id),
         FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE CASCADE
     )").execute(pool).await?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS records(
+        record_id BIGSERIAL NOT NULL,
+        record_date DATE NOT NULL,
+        currency_id BIGINT NOT NULL,
+        opening_value DOUBLE PRECISION,
+        closing_value DOUBLE PRECISION,
+        delta_value DOUBLE PRECISION GENERATED ALWAYS AS (closing_value - opening_value) STORED,
+        growth SMALLINT GENERATED ALWAYS AS (
+            CASE WHEN (closing_value - opening_value) = 0 THEN 0
+                 WHEN (closing_value - opening_value) > 0 THEN 1
+                 ELSE -1
+                 END
+            ) STORED,
+        PRIMARY KEY (record_id),
+        FOREIGN KEY (currency_id) REFERENCES currencies(currency_id) ON DELETE CASCADE
+        )
+    ").execute(pool).await?;
     Ok(())
 }
 

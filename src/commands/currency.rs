@@ -13,26 +13,7 @@ use serenity::model::prelude::interaction::application_command::{
 use chrono::DateTime;
 use chrono::offset::Utc;
 use tracing::info;
-
-#[derive(sqlx::FromRow, Debug)]
-pub struct CurrencyData {
-    pub currency_id: i64,
-    pub currency_name: String,
-    pub currency_code: String,
-    pub circulation: i64,
-    pub reserves: i64,
-    pub value: f64,
-    pub state: String
-}
-
-#[derive(sqlx::FromRow, Debug)]
-pub struct TransactionData {
-    pub transaction_id: i64,
-    pub transaction_date: DateTime<Utc>,
-    pub currency_code: String,
-    pub delta_reserves: Option<i64>,
-    pub delta_circulation: Option<i64>
-}
+use crate::types::*;
 
 pub struct CurrencyHandler {
     manager: DBManager,
@@ -371,7 +352,7 @@ impl CurrencyHandler {
                     custom_data.insert("currency_code".into(), currency_code.clone());
                 }
 
-                let currency_data = match self.manager.get_currency_data(currency_code.clone()).await {
+                let currency_data = match self.query_agent.get_currency_data(currency_code.clone()).await {
                     Ok(data) => data,
                     Err(_e) => {
                         return CommandResponseObject::text(format!("Error deleting currency: could not find the currency code `{currency_code}`"))
@@ -515,7 +496,7 @@ impl CurrencyHandler {
                     c_data.insert("transaction_initiator".into(), format!("{}", data.user));
                 }
 
-                match self.manager.get_currency_data(currency_code.clone()).await {
+                match self.query_agent.get_currency_data(currency_code.clone()).await {
                     Ok(data) => {
                         let new_reserves = data.reserves + amount;
                         CommandResponseObject::interactive(
@@ -601,7 +582,7 @@ impl CurrencyHandler {
                     c_data.insert("transaction_initiator".into(), format!("{}", data.user));
                 }
 
-                match self.manager.get_currency_data(currency_code.clone()).await {
+                match self.query_agent.get_currency_data(currency_code.clone()).await {
                     Ok(data) => {
                         let new_circulation = data.circulation + amount;
 						let mut warning = "";
@@ -955,7 +936,7 @@ impl CurrencyHandler {
                     Err(e) => return CommandResponseObject::interactive_with_feedback(CreateComponents::default(), format!("Error while completing transaction: `{e:?}`"), "", true)
                 };
 
-                let currency_data = match self.manager.get_currency_data(transaction_code.clone()).await {
+                let currency_data = match self.query_agent.get_currency_data(transaction_code.clone()).await {
                     Ok(data) => data,
                     Err(e) => return CommandResponseObject::interactive_with_feedback(CreateComponents::default(), format!("Error while completing currency balance check: `{e:?}`"), "", true)
                 };
@@ -1004,7 +985,7 @@ impl CurrencyHandler {
                     Err(e) => return CommandResponseObject::interactive_with_feedback(CreateComponents::default(), format!("Error while completing transaction: `{e:?}`"), "", true)
                 };
 
-                let currency_data = match self.manager.get_currency_data(transaction_code.clone()).await {
+                let currency_data = match self.query_agent.get_currency_data(transaction_code.clone()).await {
                     Ok(data) => data,
                     Err(e) => return CommandResponseObject::interactive_with_feedback(CreateComponents::default(), format!("Error while completing currency balance check: `{e:?}`"), "", true)
                 };
