@@ -1,6 +1,5 @@
 use crate::types::*;
-use sqlx::{Row, postgres::PgPool};
-use chrono::offset::Utc;
+use sqlx::postgres::PgPool;
 use futures::TryStreamExt;
 
 #[derive(Clone)]
@@ -80,19 +79,22 @@ impl DBQueryAgent {
         Ok(currency_vec)
     }
 
-    pub async fn get_reports(&self, currency_code: String) -> Result<Vec<RecordData>, sqlx::Error> {
+    pub async fn get_reports(&self, number: i64, currency_code: String) -> Result<Vec<RecordData>, sqlx::Error> {
         let currency_id = match self.get_currency_data(currency_code).await {
             Ok(data) => data.currency_id,
             Err(e) => return Err(e)
         };
 
         let mut return_vec = vec![];
-        let mut stream = sqlx::query_as("SELECT * FROM records WHERE currency_id = $1 ORDER BY record_date;")
+        let mut stream = sqlx::query_as("SELECT * FROM records WHERE currency_id = $1 ORDER BY record_date DESC;")
             .bind(currency_id)
             .fetch(&self.pool);
 
+        let mut i = 0;
         while let Some(row) = stream.try_next().await? {
             return_vec.push(row);
+            i += 1;
+            if i >= number { break };
         }
 
         Ok(return_vec)

@@ -3,6 +3,7 @@ use tracing::{error, info, debug};
 use serenity::prelude::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::fs::create_dir_all;
 use serenity::model::{
     gateway::Ready
 };
@@ -32,6 +33,7 @@ pub struct CommandResponseObject {
     interactive_data: Option<serenity::builder::CreateComponents>,
     data: Option<String>,
     feedback: Option<String>,
+    embed: Option<serenity::builder::CreateEmbed>,
     ephemeral: bool
 }
 
@@ -42,6 +44,7 @@ impl CommandResponseObject {
             interactive_data: Some(data),
             data: Some(prompt.into()),
             feedback: None,
+            embed: None,
             ephemeral
         }
     }
@@ -52,6 +55,7 @@ impl CommandResponseObject {
             interactive_data: Some(data),
             data: None,
             feedback: None,
+            embed: None,
             ephemeral
         }
     }
@@ -62,6 +66,7 @@ impl CommandResponseObject {
             interactive_data: Some(data),
             data: Some(display.into()),
             feedback: Some(feedback.into()),
+            embed: None,
             ephemeral
         }
     }
@@ -72,6 +77,18 @@ impl CommandResponseObject {
             interactive_data: None,
             data: Some(data.into()),
             feedback: None,
+            embed: None,
+            ephemeral: false
+        }
+    }
+
+    pub fn embed(data: serenity::builder::CreateEmbed) -> Self {
+        CommandResponseObject {
+            interactive: false,
+            interactive_data: None,
+            data: None,
+            feedback: None,
+            embed: Some(data),
             ephemeral: false
         }
     }
@@ -137,43 +154,60 @@ impl<'a> EventHandler for Handler {
                 }
             };
 
-            match content.is_interactive() {
-                true => {
-                    if let Err(e) = cmd
-                        .create_interaction_response(&cx.http, |response| {
-                            response
-                                .kind(InteractionResponseType::ChannelMessageWithSource)
-                                .interaction_response_data(|message| message
-                                                           .set_components(content.get_interactive_data().clone())
-                                                           .content(content.get_text().clone())
-                                                           .ephemeral(content.is_ephemeral())
-                                                           .custom_id(cmd.data.name.clone())
-                                                           .title(cmd.data.name.clone()))
-                        }).await {
-                            error!("Cannot create interactive response to slash command: {}", e);
-                            info!("Debug dump: {:#?}", content)
-                        }
-                }
-                false => {
-                    /*if content.data.as_str() == "##DELETE##" {
-                        if let Err(e) = cmd
-                            .create_interaction_response(&cx.http, |response|) {
-                                response
-                                    .kind(InteractionResponseType::)
-                            }
-                    } else {*/
+            if let Some(embed) = content.embed.clone() {
+                if let Err(e) = cmd
+                    .create_interaction_response(&cx.http, |response| {
+                        response
+                            .kind(InteractionResponseType::ChannelMessageWithSource)
+                            .interaction_response_data(|message| {
+                                message
+                                    .set_embed(embed)
+                                    .title(cmd.data.name.clone())
+                                    .ephemeral(content.is_ephemeral())
+                            })
+                    }).await {
+                        error!("Cannot create embed response to slash command: {}", e);
+                    }
+                    
+            } else {
+                match content.is_interactive() {
+                    true => {
                         if let Err(e) = cmd
                             .create_interaction_response(&cx.http, |response| {
                                 response
                                     .kind(InteractionResponseType::ChannelMessageWithSource)
-                                    .interaction_response_data(|message| message.content(content.get_text()))
-                            })
-                            .await
-                        {
-                            debug!("Cannot respond to slash command: {}", e);
-                            debug!("Debug dump: {:?}", content.get_text())
-                        }
-                    //}
+                                    .interaction_response_data(|message| message
+                                                               .set_components(content.get_interactive_data().clone())
+                                                               .content(content.get_text().clone())
+                                                               .ephemeral(content.is_ephemeral())
+                                                               .custom_id(cmd.data.name.clone())
+                                                               .title(cmd.data.name.clone()))
+                            }).await {
+                                error!("Cannot create interactive response to slash command: {}", e);
+                                info!("Debug dump: {:#?}", content)
+                            }
+                    }
+                    false => {
+                        /*if content.data.as_str() == "##DELETE##" {
+                            if let Err(e) = cmd
+                                .create_interaction_response(&cx.http, |response|) {
+                                    response
+                                        .kind(InteractionResponseType::)
+                                }
+                        } else {*/
+                            if let Err(e) = cmd
+                                .create_interaction_response(&cx.http, |response| {
+                                    response
+                                        .kind(InteractionResponseType::ChannelMessageWithSource)
+                                        .interaction_response_data(|message| message.content(content.get_text()))
+                                })
+                                .await
+                            {
+                                debug!("Cannot respond to slash command: {}", e);
+                                debug!("Debug dump: {:?}", content.get_text())
+                            }
+                        //}
+                    }
                 }
             }
         } else if let Interaction::MessageComponent(cmd) = interaction {
@@ -256,6 +290,8 @@ async fn serenity(
     info!("Loading Economist Bot...");
     
     //dotenvy::dotenv().expect("Error: Failed reading environment variables");
+    
+    create_dir_all("data/").unwrap();
 
     let Some(discord_token) = secret_store.get("DISCORD_TOKEN") else {
         return Err(anyhow!("Failed to get DISCORD_TOKEN from Shuttle secret store").into())
@@ -277,7 +313,7 @@ async fn serenity(
     info!("Starting workers...");
     //let persistance = persist_instance.clone();
     let pool_clone = pool.clone();
-    let (tx, rx) = futures::channel::mpsc::channel(8);
+    let (_tx, rx) = futures::channel::mpsc::channel(8);
     task::spawn(record_worker(persist_instance, pool_clone, rx));
 
     //let discord_token = env::var("DISCORD_TOKEN").expect("Error: DISCORD_TOKEN environment variable not set!");

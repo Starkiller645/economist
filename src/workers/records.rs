@@ -8,6 +8,7 @@ use crate::types::*;
 use futures::channel::mpsc;
 use std::collections::HashMap;
 use tokio::time::sleep;
+use plotters::prelude::*;
 
 pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc::Receiver<WorkerMessage>) {
     info!("Starting records worker...");
@@ -28,7 +29,7 @@ pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc
     let mut open = false;
 
     let opening_time = NaiveTime::from_hms_opt(6, 0, 0).unwrap();
-    let closing_time = NaiveTime::from_hms_opt(18, 0, 0).unwrap();
+    let closing_time = NaiveTime::from_hms_opt(18, 0, 30).unwrap();
 
     let mut opening_data: HashMap<i64, CurrencyData> = HashMap::new();
     let mut closing_data: HashMap<i64, CurrencyData> = HashMap::new();
@@ -84,15 +85,99 @@ pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc
                 if !closing_data.contains_key(&currency.currency_id) {
                     continue
                 }
-                let return_data = match manager.insert_record(currency.currency_id, currency.value, closing_data.get(&currency.currency_id).unwrap().value).await {
-                    Ok(data) => data,
+                match manager.insert_record(currency.currency_id, currency.value, closing_data.get(&currency.currency_id).unwrap().value).await {
+                    Ok(data) => {
+                        info!("Inserted record for {currency:?}");
+                        data
+                    },
                     Err(e) => {
                         error!("Couldn't get result of insert command: error: {e:?}");
                         continue;
                     }
                 };
-                info!("Inserted new record: {return_data:#?}");
+
+                match query_agent.get_reports(14, currency.currency_code.clone()).await {
+                    Ok(data) => {
+                        let filename = format!("data/{:05}.png", currency.currency_id);
+                        {
+                            //let root = BitMapBackend::with_buffer(&mut buffer, (1024, 768)).into_drawing_area();
+							let root = BitMapBackend::new(filename.as_str(), (1024, 768)).into_drawing_area();
+                            let bg_color = RGBColor(56, 58, 64);
+                            root.fill(&bg_color).unwrap();
+                            let (to_date, from_date) = (
+                                data.get(0).unwrap().record_date,
+                                data.get(data.len() - 1).unwrap().record_date
+                            );
+
+                            let mut max_value: f64 = 0.0;
+                            for record in data.clone() {
+                                if record.closing_value > max_value { max_value = record.closing_value }
+                            }
+
+                            max_value += 1.0;
+
+                            let mut chart = ChartBuilder::on(&root)
+                                .margin(10)
+                                .caption(format!("Currency trend for {}", currency.currency_name), ("sans-serif", 40, &WHITE))
+                                .set_label_area_size(LabelAreaPosition::Left, 60)
+                                .set_label_area_size(LabelAreaPosition::Right, 60)
+                                .set_label_area_size(LabelAreaPosition::Bottom, 40)
+                                .build_cartesian_2d(from_date..to_date, 0f64..max_value)
+                                .unwrap();
+
+                            chart
+                                .configure_mesh()
+                                .disable_x_mesh()
+                                .disable_y_mesh()
+                                .x_labels(30)
+                                .max_light_lines(4)
+                                .y_desc(format!("Value in {} / gold ingot", currency.currency_code))
+                                .axis_desc_style(("sans-serif", 30, &WHITE))
+                                .x_label_style(("sans-serif", 20, &WHITE))
+                                .y_label_style(("sans-serif", 20, &WHITE))
+                                .axis_style(&WHITE)
+                                .draw()
+                                .unwrap();
+
+
+                            chart
+                                .draw_series(
+                                    LineSeries::new(
+                                    data.iter().map(|record| {
+                                        (record.record_date, record.closing_value)
+                                    }), 
+                                    &BLUE
+                                    )
+                                )
+                                .unwrap();
+
+                            root.present().expect("Error generating graph!");
+                        }
+
+                        let client = reqwest::Client::new();
+                        let file_stream = std::fs::read(filename.clone()).unwrap();
+                        let file_part = reqwest::multipart::Part::bytes(file_stream)
+                            .file_name(filename)
+                            .mime_str("image/jpg")
+                            .unwrap();
+                        let form = reqwest::multipart::Form::new()
+                            .part("file", file_part);
+
+                        let req = client.
+                            post(format!("https://economist-image-server.shuttleapp.rs/{:05}", currency.currency_id))
+                            .multipart(form);
+                        warn!("Generated request {req:?}");
+                        let res = req
+                            .send()
+                            .await;
+                            
+                        info!("Send HTTP POST, got response: {res:?}");
+                    }
+                    Err(e) => warn!("Caught an error while looking up records for currency `{}`: {e}", currency.currency_code)
+                }
+
             }
+            info!("Logged records!");
         };
         sleep(chrono::Duration::seconds(10).to_std().unwrap()).await;
     }

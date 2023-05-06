@@ -10,8 +10,6 @@ use serenity::model::prelude::command::CommandOptionType;
 use serenity::model::prelude::interaction::application_command::{
     ApplicationCommandInteraction, CommandDataOptionValue,
 };
-use chrono::DateTime;
-use chrono::offset::Utc;
 use tracing::info;
 use crate::types::*;
 
@@ -306,6 +304,12 @@ impl CurrencyHandler {
                             .min_length(3)
                             .required(true)
                     })
+            })
+            .create_option(|option| {
+                option
+                    .kind(CommandOptionType::SubCommand)
+                    .name("records")
+                    .description("View currency records")
             })
     }
 
@@ -844,7 +848,7 @@ impl CurrencyHandler {
                 match currency_code {
                     None => CommandResponseObject::interactive(CreateComponents::default(), format!("Couldn't respond to subcommand `view`: No currency code specified!"), true),
                     Some(code) => match self.query_agent.get_currency_data(code).await {
-                        Ok(data) => CommandResponseObject::interactive(
+                        Ok(data) => /*CommandResponseObject::interactive(
                             CreateComponents::default(),
                             format!(
                                 "`{0}` **{1}**\n> Nation/State: _{2}_\n> Reserves: `{3} ingots`\n> Circulation: `{4} {0}`\n> Value: `{5:.3} {0} / ingot`",
@@ -856,9 +860,35 @@ impl CurrencyHandler {
                                 data.value
                             ),
                             true
-                        ),
+                        ),*/
+                        {
+                            info!("https://economist-image-server.shuttleapp.rs/{:05}", data.currency_id);
+                            CommandResponseObject::embed(serenity::builder::CreateEmbed::default()
+                            .title(format!("{}", data.currency_name))
+                            .description(format!(
+                                "> Nation/State: _{0}_\n> Reserves: `{1} ingots`\n> Circulation: `{2} {3}`\n> Value: `{4:.3} {3} / ingot`",
+                                data.state,
+                                data.reserves,
+                                data.circulation,
+                                data.currency_code,
+                                data.value
+                            ))
+                            .image(format!("https://economist-image-server.shuttleapp.rs/{:05}", data.currency_id))
+                            .clone()
+                        )
+                        },
                         Err(e) => CommandResponseObject::interactive(CreateComponents::default(), format!("Error looking up currency: {:?}", e), false)
                     }
+                }
+            },
+            "records" => match self.query_agent.get_reports(4, "RLC".into()).await {
+                Err(e) => CommandResponseObject::interactive(CreateComponents::default(), format!("Error looking up records: {e:?}"), true),
+                Ok(list) => {
+                    let mut final_string = format!("**Report List** for `RLC`\n");
+                    for record in list {
+                        final_string += format!("{record:?}").as_str();
+                    }
+                    CommandResponseObject::interactive(CreateComponents::default(), final_string, true)
                 }
             }
             other => CommandResponseObject::text(format!("Couldn't respond to subcommand `{}`", other))

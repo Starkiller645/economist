@@ -1,6 +1,6 @@
 use crate::types::*;
 use sqlx::{Row, postgres::PgPool};
-use chrono::{DateTime, offset::Utc};
+use chrono::offset::Utc;
 
 #[derive(Clone)]
 pub struct DBManager {
@@ -160,13 +160,19 @@ impl DBManager {
     }
 
     pub async fn danger_recreate_database(&self) -> Result<(), sqlx::Error> {
-        match sqlx::query("DROP TABLE transactions;")
+        match sqlx::query("DROP TABLE IF EXISTS transactions;")
             .execute(&self.pool)
             .await {
                 Ok(_) => {},
                 Err(e) => return Err(e)
             };
-        match sqlx::query("DROP TABLE currencies;")
+        match sqlx::query("DROP TABLE IF EXISTS records;")
+            .execute(&self.pool)
+            .await {
+                Ok(_) => {},
+                Err(e) => return Err(e)
+            }
+        match sqlx::query("DROP TABLE IF EXISTS currencies;")
             .execute(&self.pool)
             .await {
                 Ok(_) => {},

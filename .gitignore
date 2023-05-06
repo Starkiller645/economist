@@ -3,4 +3,4 @@ tags
 Cargo.lock
 .env
 Secrets*.toml
-
+deploy.sh
