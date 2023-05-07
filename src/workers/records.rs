@@ -85,7 +85,7 @@ pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc
                 if !closing_data.contains_key(&currency.currency_id) {
                     continue
                 }
-                match manager.insert_record(currency.currency_id, currency.value, closing_data.get(&currency.currency_id).unwrap().value).await {
+                let record = match manager.insert_record(currency.currency_id, currency.value, closing_data.get(&currency.currency_id).unwrap().value).await {
                     Ok(data) => {
                         info!("Inserted record for {currency:?}");
                         data
@@ -164,7 +164,7 @@ pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc
                             .part("file", file_part);
 
                         let req = client.
-                            post(format!("https://economist-image-server.shuttleapp.rs/{:05}", currency.currency_id))
+                            post(format!("https://economist-image-server.shuttleapp.rs/{:05}/{:05}", currency.currency_id, record.record_id))
                             .multipart(form);
                         warn!("Generated request {req:?}");
                         let res = req

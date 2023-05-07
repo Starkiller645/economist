@@ -10,7 +10,7 @@ use serenity::model::prelude::command::CommandOptionType;
 use serenity::model::prelude::interaction::application_command::{
     ApplicationCommandInteraction, CommandDataOptionValue,
 };
-use tracing::info;
+use tracing::{info, debug};
 use crate::types::*;
 
 pub struct CurrencyHandler {
@@ -862,7 +862,22 @@ impl CurrencyHandler {
                             true
                         ),*/
                         {
-                            info!("https://economist-image-server.shuttleapp.rs/{:05}", data.currency_id);
+                            let records = match self.query_agent.get_reports(1, data.currency_code.clone()).await {
+                                Ok(r) => r,
+                                Err(e) => {
+                                    return CommandResponseObject::interactive(CreateComponents::default(), format!("Error getting currency records: {:?}", e), false)
+                                }
+                            };
+                            let latest = match records.get(0) {
+                                Some(r) => r,
+                                None => {
+                                    return CommandResponseObject::interactive(CreateComponents::default(), format!("Error getting currency records: couldn't get first record in list"), false)
+                                }
+                            };
+                            let record_id = latest.record_id;
+
+                            debug!("https://economist-image-server.shuttleapp.rs/{:05}/{:05}", data.currency_id, record_id);
+
                             CommandResponseObject::embed(serenity::builder::CreateEmbed::default()
                             .title(format!("{}", data.currency_name))
                             .description(format!(
@@ -873,7 +888,7 @@ impl CurrencyHandler {
                                 data.currency_code,
                                 data.value
                             ))
-                            .image(format!("https://economist-image-server.shuttleapp.rs/{:05}", data.currency_id))
+                            .image(format!("https://economist-image-server.shuttleapp.rs/{:05}/{:05}", data.currency_id, record_id))
                             .clone()
                         )
                         },
