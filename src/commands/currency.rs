@@ -10,23 +10,30 @@ use serenity::model::prelude::command::CommandOptionType;
 use serenity::model::prelude::interaction::application_command::{
     ApplicationCommandInteraction, CommandDataOptionValue,
 };
+use tokio::sync::Mutex;
+use std::sync::Arc;
 use tracing::{info, debug};
 use crate::types::*;
 
 pub struct CurrencyHandler {
-    manager: DBManager,
-    query_agent: DBQueryAgent
+    pub manager: DBManager,
+    pub query_agent: DBQueryAgent,
+    pub application_command_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>,
+    pub interaction_response_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>
 }
 
 impl CurrencyHandler {
-    pub fn new(manager: DBManager, query_agent: DBQueryAgent) -> Self {
+    pub fn new(manager: DBManager, query_agent: DBQueryAgent, cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>, interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>) -> Self {
+
         CurrencyHandler {
             manager,
-            query_agent
+            query_agent,
+            application_command_handlers: cmd_handlers,
+            interaction_response_handlers: interaction_handlers,
         }
     }
 
-    pub fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    pub fn register<'a>(&'a self, command: &'a mut CreateApplicationCommand) -> &mut CreateApplicationCommand {   
         command
             .name("currency")
             .description("Manage currencies and their circulation/reserve levels")

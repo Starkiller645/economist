@@ -1,6 +1,7 @@
 use crate::types::*;
 use sqlx::postgres::PgPool;
 use futures::TryStreamExt;
+use tracing::info;
 
 #[derive(Clone)]
 pub struct DBQueryAgent {
@@ -27,6 +28,7 @@ pub enum CurrencySort {
 
 impl DBQueryAgent {
     pub async fn get_currency_data(&self, currency_code: String) -> Result<CurrencyData, sqlx::Error> {
+        info!("Checking currency code: {currency_code}");
         match sqlx::query_as("SELECT * FROM currencies WHERE currency_code = $1")
             .bind(currency_code)
             .fetch_one(&self.pool)

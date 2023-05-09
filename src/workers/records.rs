@@ -163,15 +163,17 @@ pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc
                         let form = reqwest::multipart::Form::new()
                             .part("file", file_part);
 
+                        info!("Sending post request...");
                         let req = client.
                             post(format!("https://economist-image-server.shuttleapp.rs/{:05}/{:05}", currency.currency_id, record.record_id))
                             .multipart(form);
                         warn!("Generated request {req:?}");
-                        let res = req
+                        match req
                             .send()
-                            .await;
-                            
-                        info!("Send HTTP POST, got response: {res:?}");
+                            .await {
+                                Ok(res) => info!("Send HTTP POST, got response: {res:?}"),
+                                Err(e) => error!("Got error trying to post file: {e:?}")
+                            };
                     }
                     Err(e) => warn!("Caught an error while looking up records for currency `{}`: {e}", currency.currency_code)
                 }

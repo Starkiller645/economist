@@ -2,12 +2,15 @@ use anyhow::anyhow;
 use tracing::{error, info, debug};
 use serenity::prelude::*;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 use std::fs::create_dir_all;
+use std::fmt::Display;
+use std::sync::Arc;
 use serenity::model::{
     gateway::Ready
 };
 use serenity::async_trait;
+use serenity::builder::CreateApplicationCommandOption;
 use serenity::model::application::interaction::{Interaction, InteractionResponseType};
 use serenity::model::id::GuildId;
 use crate::commands::manage::DBManager;
@@ -22,9 +25,76 @@ use tokio::task;
 pub mod commands;
 pub mod workers;
 pub mod types;
+pub mod handlers;
+pub mod utils;
+
+use crate::types::*;
+use crate::handlers::*;
 
 pub mod consts {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
+#[shuttle_runtime::main]
+async fn serenity(
+        #[shuttle_secrets::Secrets] secret_store: SecretStore,
+        #[shuttle_shared_db::Postgres(local_uri = "{secrets.DATABASE_URL}")] pool: sqlx::postgres::PgPool,
+        #[shuttle_persist::Persist] persist_instance: PersistInstance
+    ) -> shuttle_serenity::ShuttleSerenity {
+    info!("Loading Economist Bot...");
+    
+    //dotenvy::dotenv().expect("Error: Failed reading environment variables");
+    
+    create_dir_all("data/").unwrap();
+
+    let Some(discord_token) = secret_store.get("DISCORD_TOKEN") else {
+        return Err(anyhow!("Failed to get DISCORD_TOKEN from Shuttle secret store").into())
+    };
+
+    info!("Initialising SQL database...");
+
+    let Some(_guild_id) = secret_store.get("DISCORD_GUILD_ID") else {
+        return Err(anyhow!("Failed to get DISCORD_GUILD_ID from Shuttle secret store").into())
+    };
+
+    match sqlx_init(&pool).await {
+        Ok(_) => {},
+        Err(e) => {
+            return Err(anyhow!("Error initialising SQL database: {e:?}").into());
+        }
+    };
+
+    info!("Starting workers...");
+    //let persistance = persist_instance.clone();
+    let pool_clone = pool.clone();
+    let (_tx, rx) = futures::channel::mpsc::channel(8);
+    task::spawn(record_worker(persist_instance, pool_clone, rx));
+
+    //let discord_token = env::var("DISCORD_TOKEN").expect("Error: DISCORD_TOKEN environment variable not set!");
+    let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
+
+    let circulation_handler = Arc::new(Mutex::new(circulation::CirculationHandler::new()));
+    let reserve_handler = Arc::new(Mutex::new(reserve::ReserveHandler::new()));
+    let list_handler = Arc::new(Mutex::new(list::ListHandler::new()));
+    let view_handler = Arc::new(Mutex::new(view::ViewHandler::new()));
+
+    let cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>> = vec![
+        circulation_handler.clone(),
+        reserve_handler.clone(),
+        list_handler,
+        view_handler
+    ];
+    let interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>> = vec![
+        circulation_handler,
+        reserve_handler,
+    ];
+
+    let client = match Client::builder(&discord_token, intents).event_handler(Handler::new(secret_store, pool, cmd_handlers, interaction_handlers)).await{
+        Ok(c) => c,
+        Err(e) => return Err(anyhow!("Error creating client: {e:?}").into())
+    };
+
+    Ok(client.into())
 }
 
 #[derive(Clone, Debug)]
@@ -36,6 +106,7 @@ pub struct CommandResponseObject {
     embed: Option<serenity::builder::CreateEmbed>,
     ephemeral: bool
 }
+
 
 impl CommandResponseObject {
     pub fn interactive(data: serenity::builder::CreateComponents, prompt: impl Into<String>, ephemeral: bool) -> Self {
@@ -92,6 +163,17 @@ impl CommandResponseObject {
             ephemeral: false
         }
     }
+    
+    pub fn error(data: impl Display) -> Self {
+        CommandResponseObject {
+            interactive: false,
+            interactive_data: None,
+            data: Some(format!("Economist Bot encountered an error processing a command: {data}")),
+            feedback: None,
+            embed: None,
+            ephemeral: true
+        }
+    }
 
     pub fn is_interactive(&self) -> bool {
         self.interactive
@@ -123,18 +205,16 @@ impl CommandResponseObject {
 }
 
 struct Handler {
-    custom_data: Mutex<HashMap<String, String>>,
     secrets: SecretStore,
     currency_handler: CurrencyHandler
 }
 
 impl Handler {
-    fn new(custom_data: Mutex<HashMap<String, String>>, secrets: SecretStore, pool: sqlx::postgres::PgPool) -> Self {
+    fn new(secrets: SecretStore, pool: sqlx::postgres::PgPool, cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>, interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>) -> Self {
         let db_manager = DBManager::new(pool.clone());
         let query_agent = DBQueryAgent::new(pool);
-        let currency_handler = CurrencyHandler::new(db_manager.clone(), query_agent);
+        let currency_handler = CurrencyHandler::new(db_manager.clone(), query_agent, cmd_handlers, interaction_handlers);
         Handler {
-            custom_data,
             secrets,
             currency_handler
         }
@@ -146,13 +226,27 @@ impl<'a> EventHandler for Handler {
     async fn interaction_create(&self, cx: Context, interaction: Interaction) {
         
         if let Interaction::ApplicationCommand(cmd) = interaction {
-            let mut content = match cmd.data.name.as_str() {
-                "economist" => commands::meta::run(&cmd),
-                "currency" => self.currency_handler.run(&cmd, &self.custom_data).await,
-                _ => {
-                    CommandResponseObject::text("Not implemented yet :(")
+            let mut content = CommandResponseObject::text("Content unavailable: no response handler registered for command!");
+
+            for handler in &self.currency_handler.application_command_handlers {
+                let lock = handler.lock().await;
+                let name: String = lock.get_name().into();
+                drop(lock);
+                info!("Checking handler name: `{name}` against `{}`", cmd.data.name.as_str());
+
+                if let Some(sub_command) = cmd.data.options.get(0) {
+                    if sub_command.name.as_str() == name {
+                        info!("Got a match!");
+                        let mut lock = handler.lock().await;
+                        info!("Mutex locked");
+                        content = match lock.handle_application_command(&cmd, &self.currency_handler.query_agent, &self.currency_handler.manager).await {
+                            Ok(data) => data.clone(),
+                            Err(e) => CommandResponseObject::error(format!("Error responding to application command: {e:?}"))
+                        };
+                        info!("Completed handling application command");
+                    }
                 }
-            };
+            }
 
             if let Some(embed) = content.embed.clone() {
                 if let Err(e) = cmd
@@ -211,10 +305,27 @@ impl<'a> EventHandler for Handler {
                 }
             }
         } else if let Interaction::MessageComponent(cmd) = interaction {
-            let mut content = match cmd.data.custom_id.as_str() {
+            let mut content = CommandResponseObject::error("Got no response from interaction response handler");
+            info!("Target callsign: {}", cmd.data.custom_id.as_str());
+            for interaction_response in &self.currency_handler.interaction_response_handlers {
+                let interaction_pattern;
+                let guard = interaction_response.lock().await;
+                interaction_pattern = guard.get_pattern();
+                for interaction_callsign in interaction_pattern.clone() {
+                    info!("Checking callsign: {} against list {interaction_pattern:?}", cmd.data.custom_id.as_str());
+                    if interaction_callsign == cmd.data.custom_id.as_str() {
+                        content = match guard.handle_interaction_response(&cmd, &self.currency_handler.query_agent, &self.currency_handler.manager).await {
+                            Ok(data) => data,
+                            Err(e) => CommandResponseObject::error(format!("{e:?}"))
+                        }
+                    }
+                }
+            }
+
+            /*let mut content = match cmd.data.custom_id.as_str() {
                 "button-delete-confirm" | "button-delete-cancel" | "gold-transaction-confirm" | "gold-transaction-cancel" | "currency-transaction-confirm" | "currency-transaction-cancel" | "recreate-database-confirm" | "recreate-database-cancel" => self.currency_handler.handle_component(&cmd, &self.custom_data).await,
                 _ => CommandResponseObject::text("Not handled :(")
-            };
+            };*/
             match cmd.message.delete(&cx.http).await {
                  Ok(_) => {},
                  Err(e) => debug!("Error occurred deleting message: {e:?}")
@@ -273,57 +384,42 @@ impl<'a> EventHandler for Handler {
 
         let guild_id = GuildId(self.secrets.get("DISCORD_GUILD_ID").unwrap().parse().unwrap());
 
-        guild_id.set_application_commands(&cx.http, |commands| {
-            commands
-                .create_application_command(|command| commands::currency::CurrencyHandler::register(command))
-                .create_application_command(|command| commands::meta::register(command))
-        }).await.unwrap();
-    }
-}
+        let mut sub_option_vec = vec![];
+        for sub_option in &self.currency_handler.application_command_handlers {
+            let sub_option_lock = sub_option.lock().await;
 
-#[shuttle_runtime::main]
-async fn serenity(
-        #[shuttle_secrets::Secrets] secret_store: SecretStore,
-        #[shuttle_shared_db::Postgres(local_uri = "{secrets.DATABASE_URL}")] pool: sqlx::postgres::PgPool,
-        #[shuttle_persist::Persist] persist_instance: PersistInstance
-    ) -> shuttle_serenity::ShuttleSerenity {
-    info!("Loading Economist Bot...");
-    
-    //dotenvy::dotenv().expect("Error: Failed reading environment variables");
-    
-    create_dir_all("data/").unwrap();
-
-    let Some(discord_token) = secret_store.get("DISCORD_TOKEN") else {
-        return Err(anyhow!("Failed to get DISCORD_TOKEN from Shuttle secret store").into())
-    };
-
-    info!("Initialising SQL database...");
-
-    let Some(_guild_id) = secret_store.get("DISCORD_GUILD_ID") else {
-        return Err(anyhow!("Failed to get DISCORD_GUILD_ID from Shuttle secret store").into())
-    };
-
-    match sqlx_init(&pool).await {
-        Ok(_) => {},
-        Err(e) => {
-            return Err(anyhow!("Error initialising SQL database: {e:?}").into());
+            let mut opt = CreateApplicationCommandOption::default();
+            opt = opt
+                .kind(sub_option_lock.get_option_kind())
+                .name(sub_option_lock.get_name())
+                .description(sub_option_lock.get_description()).clone();
+            for op in sub_option_lock.register() {
+                opt = opt
+                    .add_sub_option(op)
+                    .clone()
+            }
+            sub_option_vec.push(opt);
         }
-    };
 
-    info!("Starting workers...");
-    //let persistance = persist_instance.clone();
-    let pool_clone = pool.clone();
-    let (_tx, rx) = futures::channel::mpsc::channel(8);
-    task::spawn(record_worker(persist_instance, pool_clone, rx));
-
-    //let discord_token = env::var("DISCORD_TOKEN").expect("Error: DISCORD_TOKEN environment variable not set!");
-    let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
-    let client = match Client::builder(&discord_token, intents).event_handler(Handler::new(HashMap::new().into(), secret_store, pool)).await{
-        Ok(c) => c,
-        Err(e) => return Err(anyhow!("Error creating client: {e:?}").into())
-    };
-
-    Ok(client.into())
+        match guild_id.set_application_commands(&cx.http, |command| {
+            command
+                .create_application_command(|command| {
+                    let mut cmd = command
+                        .name("currency")
+                        .description("Manage and view currencies and their circulation levels");
+                    for sub_option in sub_option_vec {
+                        cmd = cmd
+                            .add_option(sub_option.clone())
+                    }
+                    info!("{cmd:#?}");
+                    cmd
+                })
+                .create_application_command(|command| commands::meta::register(command))
+        }).await {
+            Ok(_) => {},
+            Err(e) => error!("Error occurred setting application commands: {e:?}")
+        };
+    }
 }
 
 async fn sqlx_init(pool: &sqlx::postgres::PgPool) -> Result<(), sqlx::Error> {
