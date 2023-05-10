@@ -9,6 +9,7 @@ A Discord bot to assist in managing a complete virtual economy
 ![Version Badge](https://img.shields.io/github/v/tag/Starkiller645/economist?color=%23219aff&include_prereleases&label=Version&style=for-the-badge)
 ![Lines of Code Badge](https://img.shields.io/tokei/lines/github/Starkiller645/economist?color=%23219aff&style=for-the-badge)
 
+</div>
 
 ## Description
 Economist Bot allows users to create, modify and delete currencies, backed by their federal gold reserves. While this bot is designed for Minecraft servers, the concept works for managing any kind of virtual currency. The bot will log records of each transaction, as well as performance of each currency at the close of trading each day, and generate graphs of each currency's performance over time.
