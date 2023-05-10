@@ -78,6 +78,7 @@ async fn serenity(
     let view_handler = Arc::new(Mutex::new(view::ViewHandler::new()));
     let create_handler = Arc::new(Mutex::new(create::CreateHandler::new()));
     let delete_handler = Arc::new(Mutex::new(delete::DeleteHandler::new()));
+    let modify_handler = Arc::new(Mutex::new(modify::ModifyHandler::new()));
 
     let cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>> = vec![
         circulation_handler.clone(),
@@ -85,7 +86,8 @@ async fn serenity(
         delete_handler.clone(),
         list_handler,
         view_handler,
-        create_handler
+        create_handler,
+        modify_handler
     ];
     let interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>> = vec![
         circulation_handler,
@@ -236,18 +238,14 @@ impl<'a> EventHandler for Handler {
                 let lock = handler.lock().await;
                 let name: String = lock.get_name().into();
                 drop(lock);
-                info!("Checking handler name: `{name}` against `{}`", cmd.data.name.as_str());
 
                 if let Some(sub_command) = cmd.data.options.get(0) {
                     if sub_command.name.as_str() == name {
-                        info!("Got a match!");
                         let mut lock = handler.lock().await;
-                        info!("Mutex locked");
                         content = match lock.handle_application_command(&cmd, &self.currency_handler.query_agent, &self.currency_handler.manager).await {
                             Ok(data) => data.clone(),
                             Err(e) => CommandResponseObject::error(format!("Error responding to application command: {e:?}"))
                         };
-                        info!("Completed handling application command");
                     }
                 }
             }
@@ -310,13 +308,11 @@ impl<'a> EventHandler for Handler {
             }
         } else if let Interaction::MessageComponent(cmd) = interaction {
             let mut content = CommandResponseObject::error("Got no response from interaction response handler");
-            info!("Target callsign: {}", cmd.data.custom_id.as_str());
             for interaction_response in &self.currency_handler.interaction_response_handlers {
                 let interaction_pattern;
                 let guard = interaction_response.lock().await;
                 interaction_pattern = guard.get_pattern();
                 for interaction_callsign in interaction_pattern.clone() {
-                    info!("Checking callsign: {} against list {interaction_pattern:?}", cmd.data.custom_id.as_str());
                     if interaction_callsign == cmd.data.custom_id.as_str() {
                         content = match guard.handle_interaction_response(&cmd, &self.currency_handler.query_agent, &self.currency_handler.manager).await {
                             Ok(data) => data,
@@ -415,7 +411,6 @@ impl<'a> EventHandler for Handler {
                         cmd = cmd
                             .add_option(sub_option.clone())
                     }
-                    info!("{cmd:#?}");
                     cmd
                 })
                 .create_application_command(|command| commands::meta::register(command))
