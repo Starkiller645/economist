@@ -76,12 +76,14 @@ async fn serenity(
     let reserve_handler = Arc::new(Mutex::new(reserve::ReserveHandler::new()));
     let list_handler = Arc::new(Mutex::new(list::ListHandler::new()));
     let view_handler = Arc::new(Mutex::new(view::ViewHandler::new()));
+    let create_handler = Arc::new(Mutex::new(create::CreateHandler::new()));
 
     let cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>> = vec![
         circulation_handler.clone(),
         reserve_handler.clone(),
         list_handler,
-        view_handler
+        view_handler,
+        create_handler
     ];
     let interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>> = vec![
         circulation_handler,
