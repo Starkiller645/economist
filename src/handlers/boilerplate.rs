@@ -4,6 +4,7 @@ use crate::types::*;
 use crate::CommandResponseObject;
 use async_trait::async_trait;
 use serenity::model::application::interaction::message_component::MessageComponentInteraction;
+use serenity::builder::{CreateComponents, CreateApplicationCommandOption};
 use serenity::model::prelude::interaction::application_command::{
     ApplicationCommandInteraction, CommandDataOption, CommandDataOptionValue,
 };
