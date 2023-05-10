@@ -9,6 +9,7 @@ use futures::channel::mpsc;
 use std::collections::HashMap;
 use tokio::time::sleep;
 use plotters::prelude::*;
+use plotters::style::colors::full_palette::*;
 
 pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc::Receiver<WorkerMessage>) {
     info!("Starting records worker...");
@@ -104,10 +105,26 @@ pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc
 							let root = BitMapBackend::new(filename.as_str(), (1024, 768)).into_drawing_area();
                             let bg_color = RGBColor(56, 58, 64);
                             root.fill(&bg_color).unwrap();
+                            let latest_data = data.get(0).unwrap();
                             let (to_date, from_date) = (
-                                data.get(0).unwrap().record_date,
+                                latest_data.record_date,
                                 data.get(data.len() - 1).unwrap().record_date
                             );
+
+                            let graph_color;
+                            if let Some(prev_data) = data.get(1) {
+                                let value_difference = latest_data.closing_value - prev_data.closing_value;
+                                info!("Currency value change since last record: {value_difference:.5}");
+                                if value_difference > 0.2 {
+                                    graph_color = &LIME_A700;
+                                } else if value_difference < -0.2 {
+                                    graph_color = &RED_600;
+                                } else { 
+                                    graph_color = &BLUEGREY_A100;
+                                }
+                            } else {
+                                graph_color = &BLUEGREY_A100;
+                            }
 
                             let mut max_value: f64 = 0.0;
                             for record in data.clone() {
@@ -118,7 +135,7 @@ pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc
 
                             let mut chart = ChartBuilder::on(&root)
                                 .margin(10)
-                                .caption(format!("Currency trend for {}", currency.currency_name), ("sans-serif", 40, &WHITE))
+                                .caption(format!("Currency trend for {}", currency.currency_name), ("sans-serif", 40, &GREY_50))
                                 .set_label_area_size(LabelAreaPosition::Left, 60)
                                 .set_label_area_size(LabelAreaPosition::Right, 60)
                                 .set_label_area_size(LabelAreaPosition::Bottom, 40)
@@ -131,11 +148,11 @@ pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc
                                 .disable_y_mesh()
                                 .x_labels(30)
                                 .max_light_lines(4)
-                                .y_desc(format!("Value in {} / gold ingot", currency.currency_code))
-                                .axis_desc_style(("sans-serif", 30, &WHITE))
-                                .x_label_style(("sans-serif", 20, &WHITE))
-                                .y_label_style(("sans-serif", 20, &WHITE))
-                                .axis_style(&WHITE)
+                                .y_desc(format!("Currency value (gold ingots per {})", currency.currency_code))
+                                .axis_desc_style(("sans-serif", 30, &GREY_50))
+                                .x_label_style(("sans-serif", 20, &GREY_50))
+                                .y_label_style(("sans-serif", 20, &GREY_50))
+                                .axis_style(&GREY_50)
                                 .draw()
                                 .unwrap();
 
@@ -146,7 +163,7 @@ pub async fn record_worker(_persist: PersistInstance, pool: PgPool, mut rx: mpsc
                                     data.iter().map(|record| {
                                         (record.record_date, record.closing_value)
                                     }), 
-                                    &BLUE
+                                    graph_color
                                     )
                                 )
                                 .unwrap();

@@ -88,7 +88,7 @@ impl DBQueryAgent {
         };
 
         let mut return_vec = vec![];
-        let mut stream = sqlx::query_as("SELECT * FROM records WHERE currency_id = $1 ORDER BY record_date DESC;")
+        let mut stream = sqlx::query_as("SELECT * FROM records WHERE currency_id = $1 ORDER BY record_id DESC;")
             .bind(currency_id)
             .fetch(&self.pool);
 
