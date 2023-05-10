@@ -9,7 +9,7 @@ use serenity::model::application::interaction::message_component::MessageCompone
 use crate::commands::query::*;
 use crate::commands::manage::*;
 
-#[derive(sqlx::FromRow, Debug, Serialize, Deserialize, Clone)]
+#[derive(sqlx::FromRow, Debug, Serialize, Deserialize, Clone, Default)]
 pub struct CurrencyData {
     pub currency_id: i64,
     pub currency_name: String,
@@ -20,7 +20,7 @@ pub struct CurrencyData {
     pub state: String,
 }
 
-#[derive(sqlx::FromRow, Debug, Serialize, Deserialize, Clone)]
+#[derive(sqlx::FromRow, Debug, Serialize, Deserialize, Clone, Default)]
 pub struct TransactionData {
     pub transaction_id: i64,
     pub transaction_date: DateTime<Utc>,
@@ -29,7 +29,7 @@ pub struct TransactionData {
     pub delta_circulation: Option<i64>,
 }
 
-#[derive(sqlx::FromRow, Debug, Serialize, Deserialize, Clone)]
+#[derive(sqlx::FromRow, Debug, Serialize, Deserialize, Clone, Default)]
 pub struct RecordData {
     pub record_id: i64,
     pub record_date: NaiveDate,
@@ -40,7 +40,7 @@ pub struct RecordData {
     pub growth: i16, // -1 for decline, 0 for steady, 1 for growth
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum WorkerMessage {
     Halt,
 }
