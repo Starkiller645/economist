@@ -77,10 +77,12 @@ async fn serenity(
     let list_handler = Arc::new(Mutex::new(list::ListHandler::new()));
     let view_handler = Arc::new(Mutex::new(view::ViewHandler::new()));
     let create_handler = Arc::new(Mutex::new(create::CreateHandler::new()));
+    let delete_handler = Arc::new(Mutex::new(delete::DeleteHandler::new()));
 
     let cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>> = vec![
         circulation_handler.clone(),
         reserve_handler.clone(),
+        delete_handler.clone(),
         list_handler,
         view_handler,
         create_handler
@@ -88,6 +90,7 @@ async fn serenity(
     let interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>> = vec![
         circulation_handler,
         reserve_handler,
+        delete_handler
     ];
 
     let client = match Client::builder(&discord_token, intents).event_handler(Handler::new(secret_store, pool, cmd_handlers, interaction_handlers)).await{
