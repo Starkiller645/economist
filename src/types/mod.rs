@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use async_trait::async_trait;
 use crate::CommandResponseObject;
 use serenity::model::prelude::interaction::application_command::ApplicationCommandInteraction;
-use serenity::model::application::interaction::application_command::CommandDataOption;
 use serenity::model::prelude::command::CommandOptionType;
 use serenity::builder::CreateApplicationCommandOption;
 use serenity::model::application::interaction::message_component::MessageComponentInteraction;

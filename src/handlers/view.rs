@@ -4,7 +4,7 @@ use crate::types::*;
 use crate::utils;
 use crate::CommandResponseObject;
 use async_trait::async_trait;
-use tracing::{debug, info};
+use tracing::info;
 use serenity::builder::CreateApplicationCommandOption;
 use serenity::model::prelude::command::CommandOptionType;
 use serenity::model::prelude::interaction::application_command::{

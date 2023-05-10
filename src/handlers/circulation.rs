@@ -13,7 +13,7 @@ use serenity::builder::{CreateComponents, CreateApplicationCommandOption};
 use crate::commands::query::*;
 use crate::commands::manage::*;
 use crate::utils;
-use tracing::{info, error};
+use tracing::info;
 
 pub struct CirculationHandler {
     transaction_code: String,

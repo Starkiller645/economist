@@ -1,7 +1,6 @@
 use anyhow::anyhow;
 use tracing::{error, info, debug};
 use serenity::prelude::*;
-use std::collections::HashMap;
 use tokio::sync::Mutex;
 use std::fs::create_dir_all;
 use std::fmt::Display;
