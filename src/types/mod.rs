@@ -42,6 +42,7 @@ pub struct RecordData {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub enum WorkerMessage {
+    #[default]
     Halt,
 }
 

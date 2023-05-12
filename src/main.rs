@@ -79,6 +79,7 @@ async fn serenity(
     let create_handler = Arc::new(Mutex::new(create::CreateHandler::new()));
     let delete_handler = Arc::new(Mutex::new(delete::DeleteHandler::new()));
     let modify_handler = Arc::new(Mutex::new(modify::ModifyHandler::new()));
+    let records_handler = Arc::new(Mutex::new(records::RecordsHandler::new()));
 
     let cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>> = vec![
         circulation_handler.clone(),
@@ -87,7 +88,8 @@ async fn serenity(
         list_handler,
         view_handler,
         create_handler,
-        modify_handler
+        modify_handler,
+        records_handler
     ];
     let interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>> = vec![
         circulation_handler,
@@ -234,18 +236,23 @@ impl<'a> EventHandler for Handler {
         if let Interaction::ApplicationCommand(cmd) = interaction {
             let mut content = CommandResponseObject::text("Content unavailable: no response handler registered for command!");
 
+
             for handler in &self.currency_handler.application_command_handlers {
                 let lock = handler.lock().await;
                 let name: String = lock.get_name().into();
                 drop(lock);
 
-                if let Some(sub_command) = cmd.data.options.get(0) {
-                    if sub_command.name.as_str() == name {
-                        let mut lock = handler.lock().await;
-                        content = match lock.handle_application_command(&cmd, &self.currency_handler.query_agent, &self.currency_handler.manager).await {
-                            Ok(data) => data.clone(),
-                            Err(e) => CommandResponseObject::error(format!("Error responding to application command: {e:?}"))
-                        };
+                if cmd.data.name.as_str() == "economist" {
+                    content = commands::meta::run(&cmd)
+                } else {
+                    if let Some(sub_command) = cmd.data.options.get(0) {
+                        if sub_command.name.as_str() == name {
+                            let mut lock = handler.lock().await;
+                            content = match lock.handle_application_command(&cmd, &self.currency_handler.query_agent, &self.currency_handler.manager).await {
+                                Ok(data) => data.clone(),
+                                Err(e) => CommandResponseObject::error(format!("Error responding to application command: {e:?}"))
+                            };
+                        }
                     }
                 }
             }
