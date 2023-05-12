@@ -1,6 +1,6 @@
 <div align="center">
 
-![Economist Bot Logo](../assets/logo-banner.png)
+![Economist Bot Logo](../assets/logo-wordmark.png)
 
 # Economist Bot
 A Discord bot to assist in managing a complete virtual economy
