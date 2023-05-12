@@ -37,28 +37,42 @@ impl ApplicationCommandHandler for ViewHandler {
             Err(e) => return Err(format!("Error getting records: {e:?}"))
         };
 
-        let latest = match records.get(0) {
-            Some(r) => r,
-            None => return Err("Error getting records: Couldn't get first record in list".into())
+        let mut embed = serenity::builder::CreateEmbed::default()
+            .title(format!("{}", currency_data.currency_name))
+            .clone();
+
+        let mut description = format!(
+                "> Nation/State: _{0}_\n> Reserves: `{1} ingots`\n> Circulation: `{2} {3}`\n> Value: `{4:.3} ingot / {3}`",
+                currency_data.state,
+                currency_data.reserves,
+                currency_data.circulation,
+                currency_data.currency_code,
+                currency_data.value
+            );
+
+        match records.get(0) {
+            Some(record) => {
+                let record_id = record.record_id;
+                info!("Using url https://economist-image-server.shuttleapp.rs/{:05}/{:05}", currency_data.currency_id, record_id);
+
+                embed = embed
+                    .image(format!("https://economist-image-server.shuttleapp.rs/{:05}/{:05}", currency_data.currency_id, record_id))
+                    .clone();
+            },
+            None => {
+                description += "\n```ansi\n\u{001b}[1;33mWarning:\u{001b}[0m No past records available for this currency```"
+            }
         };
 
-        let record_id = latest.record_id;
-        info!("Using url https://economist-image-server.shuttleapp.rs/{:05}/{:05}", currency_data.currency_id, record_id);
+        embed = embed
+            .description(description)
+            .clone();
 
-        Ok(CommandResponseObject::embed(
-            serenity::builder::CreateEmbed::default()
-                .title(format!("{}", currency_data.currency_name))
-                .description(format!(
-                    "> Nation/State: _{0}_\n> Reserves: `{1} ingots`\n> Circulation: `{2} {3}`\n> Value: `{4:.3} ingot / {3}`",
-                    currency_data.state,
-                    currency_data.reserves,
-                    currency_data.circulation,
-                    currency_data.currency_code,
-                    currency_data.value
-                ))
-                .image(format!("https://economist-image-server.shuttleapp.rs/{:05}/{:05}", currency_data.currency_id, record_id))
-                .clone()
-        ))
+        Ok(
+            CommandResponseObject::embed(
+                embed.clone()
+            )
+        )
     }
 
     fn get_name(&self) -> &str { "view" }

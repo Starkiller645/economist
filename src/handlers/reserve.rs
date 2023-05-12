@@ -50,8 +50,8 @@ impl ApplicationCommandHandler for ReserveHandler {
             Ok((a, b)) => (a.clone(), b.clone()),
             Err(e) => {
                 return match e {
-                    "add" => Err("Can't use negative values with `/currency reserve add`. Please use `/currency circulation remove` instead.".into()),
-                    "remove" => Err("Can't use negative values with `/currency reserve remove`. Please use `/currency circulation add` instead.".into()),
+                    "add" => Err("Can't use negative values with `/currency reserve add`. Please use `/currency reserve remove` instead.".into()),
+                    "remove" => Err("Can't use negative values with `/currency reserve remove`. Please use `/currency reserve add` instead.".into()),
                     _ => Err("An unknown error occured while parsing command arguments".into())
                 };
             }
@@ -73,12 +73,12 @@ impl ApplicationCommandHandler for ReserveHandler {
         CreateApplicationCommandOption::default()
             .kind(CommandOptionType::SubCommand)
             .name("add")
-            .description("Put money into circulation")
+            .description("Add gold to federal reserves")
             .create_sub_option(|option| {
                 option
                     .kind(CommandOptionType::Integer)
                     .name("amount")
-                    .description("The amount of money to put into circulation")
+                    .description("The amount of gold to add")
                     .required(true)
             })
             .create_sub_option(|option| {
@@ -93,12 +93,12 @@ impl ApplicationCommandHandler for ReserveHandler {
         CreateApplicationCommandOption::default()
             .kind(CommandOptionType::SubCommand)
             .name("remove")
-            .description("Remove money from circulation")
+            .description("Remove gold from federal reserves")
             .create_sub_option(|option| {
                 option
                     .kind(CommandOptionType::Integer)
                     .name("amount")
-                    .description("The amount of money to remove from circulation")
+                    .description("The amount of gold to remove")
                     .required(true)
             })
             .create_sub_option(|option| {
@@ -131,7 +131,7 @@ impl InteractionResponseHandler for ReserveHandler {
                         };
 
                 let feedback = format!("Successfully completed gold reserve transaction!");
-                let broadcast = format!("{0} made a gold reserve transaction:\n> Currency: **{1}** `{2}`\n> Nation/State: *{6}*\n> Amount: `{3}{2}`\n> New balance: `{4}{2}`\n> Transaction ID: `#{5:0>5}`", data.user, currency_data.currency_name, self.transaction_code, self.transaction_amount, currency_data.reserves, transaction_response.transaction_id, currency_data.state);
+                let broadcast = format!("{0} made a gold reserve transaction:\n> Currency: **{1}** `{2}`\n> Nation/State: *{6}*\n> Amount: `{3} ingots`\n> New balance: `{4} ingots`\n> Transaction ID: `#{5:0>5}`", data.user, currency_data.currency_name, self.transaction_code, self.transaction_amount, currency_data.reserves, transaction_response.transaction_id, currency_data.state);
 
                 Ok(CommandResponseObject::interactive_with_feedback(CreateComponents::default(), feedback, broadcast, true))
             },
@@ -212,7 +212,7 @@ impl ReserveHandler {
 
         CommandResponseObject::interactive(
             components,
-            format!("**Review currency circulation transaction**\n> Currency: **{0}** `{1}`\n> Nation/State: *{2}*\n> Amount: `{amount}{1}`\n> New balance: `{3}{1}`", data.currency_name, data.currency_code, data.state, new_reserves),
+            format!("**Review gold reserve transaction**\n> Currency: **{0}** `{1}`\n> Nation/State: *{2}*\n> Amount: `{amount} ingots`\n> New balance: `{3} ingots`", data.currency_name, data.currency_code, data.state, new_reserves),
             true
         )
     }

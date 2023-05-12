@@ -14,7 +14,6 @@ use serenity::model::application::interaction::{Interaction, InteractionResponse
 use serenity::model::id::GuildId;
 use crate::commands::manage::DBManager;
 use crate::commands::query::DBQueryAgent;
-use crate::commands::currency::CurrencyHandler;
 use crate::workers::records::*;
 use sqlx::{Connection, Row};
 use shuttle_secrets::SecretStore;
@@ -217,17 +216,25 @@ impl CommandResponseObject {
 
 struct Handler {
     secrets: SecretStore,
-    currency_handler: CurrencyHandler
+    //currency_handler: CurrencyHandler,
+    db_manager: DBManager,
+    query_agent: DBQueryAgent,
+    application_command_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>,
+    interaction_response_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>
 }
 
 impl Handler {
     fn new(secrets: SecretStore, pool: sqlx::postgres::PgPool, cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>, interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>) -> Self {
         let db_manager = DBManager::new(pool.clone());
         let query_agent = DBQueryAgent::new(pool);
-        let currency_handler = CurrencyHandler::new(db_manager.clone(), query_agent, cmd_handlers, interaction_handlers);
+        //let currency_handler = CurrencyHandler::new(db_manager.clone(), query_agent, cmd_handlers, interaction_handlers);
         Handler {
             secrets,
-            currency_handler
+            //currency_handler,
+            db_manager,
+            query_agent,
+            application_command_handlers: cmd_handlers,
+            interaction_response_handlers: interaction_handlers
         }
     }
 }
@@ -240,7 +247,7 @@ impl<'a> EventHandler for Handler {
             let mut content = CommandResponseObject::text("Content unavailable: no response handler registered for command!");
 
 
-            for handler in &self.currency_handler.application_command_handlers {
+            for handler in &self.application_command_handlers {
                 let lock = handler.lock().await;
                 let name: String = lock.get_name().into();
                 drop(lock);
@@ -251,7 +258,7 @@ impl<'a> EventHandler for Handler {
                     if let Some(sub_command) = cmd.data.options.get(0) {
                         if sub_command.name.as_str() == name {
                             let mut lock = handler.lock().await;
-                            content = match lock.handle_application_command(&cmd, &self.currency_handler.query_agent, &self.currency_handler.manager).await {
+                            content = match lock.handle_application_command(&cmd, &self.query_agent, &self.db_manager).await {
                                 Ok(data) => data.clone(),
                                 Err(e) => CommandResponseObject::error(format!("Error responding to application command: {e:?}"))
                             };
@@ -318,13 +325,13 @@ impl<'a> EventHandler for Handler {
             }
         } else if let Interaction::MessageComponent(cmd) = interaction {
             let mut content = CommandResponseObject::error("Got no response from interaction response handler");
-            for interaction_response in &self.currency_handler.interaction_response_handlers {
+            for interaction_response in &self.interaction_response_handlers {
                 let interaction_pattern;
                 let guard = interaction_response.lock().await;
                 interaction_pattern = guard.get_pattern();
                 for interaction_callsign in interaction_pattern.clone() {
                     if interaction_callsign == cmd.data.custom_id.as_str() {
-                        content = match guard.handle_interaction_response(&cmd, &self.currency_handler.query_agent, &self.currency_handler.manager).await {
+                        content = match guard.handle_interaction_response(&cmd, &self.query_agent, &self.db_manager).await {
                             Ok(data) => data,
                             Err(e) => CommandResponseObject::error(format!("{e:?}"))
                         }
@@ -395,7 +402,7 @@ impl<'a> EventHandler for Handler {
         let guild_id = GuildId(self.secrets.get("DISCORD_GUILD_ID").unwrap().parse().unwrap());
 
         let mut sub_option_vec = vec![];
-        for sub_option in &self.currency_handler.application_command_handlers {
+        for sub_option in &self.application_command_handlers {
             let sub_option_lock = sub_option.lock().await;
 
             let mut opt = CreateApplicationCommandOption::default();
