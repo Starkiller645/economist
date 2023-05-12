@@ -1,7 +1,7 @@
 use crate::consts::*;
 use crate::CommandResponseObject;
 use rustc_version::version;
-use serenity::builder::{CreateApplicationCommand, CreateComponents};
+use serenity::builder::{CreateApplicationCommand, CreateComponents, CreateEmbed};
 use serenity::model::prelude::command::CommandOptionType;
 use serenity::model::prelude::interaction::application_command::ApplicationCommandInteraction;
 
@@ -40,14 +40,17 @@ pub fn run(data: &ApplicationCommandInteraction) -> CommandResponseObject {
             let rustc_info = version().unwrap();
             let os = std::env::consts::OS;
 
-            CommandResponseObject::text(format!(
-                "**Economist Bot**, written by @Starkiller645
-> Version: **{bot_version}**
+            CommandResponseObject::embed(
+                CreateEmbed::default()
+                    .title("**Economist Bot**, written by Starkiller645")
+                    .description(format!("> Version: **{bot_version}**
 > Build time: `{BUILT_TIME_UTC}`
 > Target: `{TARGET}`
 > Host: `{HOST}`
-> rustc: `{rustc_info}`, on `{os}`, `{CFG_ENV}` toolchain",
-            ))
+> rustc: `{rustc_info}`, on `{os}`, `{CFG_ENV}` toolchain"))
+                    .image("https://raw.githubusercontent.com/Starkiller645/economist/assets/logo-wordmark-dark.png?iteration=00001")
+                    .clone()
+                )
         }
         _ => CommandResponseObject::text(""),
     }
