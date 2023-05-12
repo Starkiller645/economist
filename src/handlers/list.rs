@@ -68,7 +68,7 @@ impl ApplicationCommandHandler for ListHandler {
 
         for currency in currencies {
             list += format!(
-                "\n┃[\u{001b}[36m{0: <3.3}\u{001b}[0m] \u{001b}[1m{1: <30.30}\u{001b}[0m┃{5: <30.30}┃\u{001b}[1;33m{2: >7.7}\u{001b}[0m ingots┃\u{001b}[1;34m{3: >7.7}\u{001b}[0m {0}┃\u{001b}[1;35m{4: <3.3}\u{001b}[0m {0} / ingot┃",
+                "\n┃[\u{001b}[36m{0: <3.3}\u{001b}[0m] \u{001b}[1m{1: <30.30}\u{001b}[0m┃{5: <30.30}┃\u{001b}[1;33m{2: >7.7}\u{001b}[0m ingots┃\u{001b}[1;34m{3: >7.7}\u{001b}[0m {0}┃\u{001b}[1;35m{4: <3.3}\u{001b}[0m ingot / {0}┃",
                 currency.currency_code,
                 currency.currency_name,
                 currency.reserves,

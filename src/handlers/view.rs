@@ -49,7 +49,7 @@ impl ApplicationCommandHandler for ViewHandler {
             serenity::builder::CreateEmbed::default()
                 .title(format!("{}", currency_data.currency_name))
                 .description(format!(
-                    "> Nation/State: _{0}_\n> Reserves: `{1} ingots`\n> Circulation: `{2} {3}`\n> Value: `{4:.3} {3} / ingot`",
+                    "> Nation/State: _{0}_\n> Reserves: `{1} ingots`\n> Circulation: `{2} {3}`\n> Value: `{4:.3} ingot / {3}`",
                     currency_data.state,
                     currency_data.reserves,
                     currency_data.circulation,
