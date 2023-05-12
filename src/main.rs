@@ -28,8 +28,8 @@ use serenity::model::{
 };
 use serenity::async_trait;
 use serenity::builder::CreateApplicationCommandOption;
+use serenity::model::application::command::Command;
 use serenity::model::application::interaction::{Interaction, InteractionResponseType};
-use serenity::model::id::GuildId;
 use crate::commands::manage::DBManager;
 use crate::commands::query::DBQueryAgent;
 use crate::workers::records::*;
@@ -59,8 +59,6 @@ async fn serenity(
     ) -> shuttle_serenity::ShuttleSerenity {
     info!("Loading Economist Bot...");
     
-    //dotenvy::dotenv().expect("Error: Failed reading environment variables");
-    
     create_dir_all("data/").unwrap();
 
     let Some(discord_token) = secret_store.get("DISCORD_TOKEN") else {
@@ -81,12 +79,10 @@ async fn serenity(
     };
 
     info!("Starting workers...");
-    //let persistance = persist_instance.clone();
     let pool_clone = pool.clone();
     let (_tx, rx) = futures::channel::mpsc::channel(8);
     task::spawn(record_worker(persist_instance, pool_clone, rx));
 
-    //let discord_token = env::var("DISCORD_TOKEN").expect("Error: DISCORD_TOKEN environment variable not set!");
     let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::DIRECT_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
 
     let circulation_handler = Arc::new(Mutex::new(circulation::CirculationHandler::new()));
@@ -233,8 +229,6 @@ impl CommandResponseObject {
 }
 
 struct Handler {
-    secrets: SecretStore,
-    //currency_handler: CurrencyHandler,
     db_manager: DBManager,
     query_agent: DBQueryAgent,
     application_command_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>,
@@ -242,13 +236,10 @@ struct Handler {
 }
 
 impl Handler {
-    fn new(secrets: SecretStore, pool: sqlx::postgres::PgPool, cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>, interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>) -> Self {
+    fn new(_secrets: SecretStore, pool: sqlx::postgres::PgPool, cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>, interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>) -> Self {
         let db_manager = DBManager::new(pool.clone());
         let query_agent = DBQueryAgent::new(pool);
-        //let currency_handler = CurrencyHandler::new(db_manager.clone(), query_agent, cmd_handlers, interaction_handlers);
         Handler {
-            secrets,
-            //currency_handler,
             db_manager,
             query_agent,
             application_command_handlers: cmd_handlers,
@@ -319,25 +310,17 @@ impl<'a> EventHandler for Handler {
                             }
                     }
                     false => {
-                        /*if content.data.as_str() == "##DELETE##" {
-                            if let Err(e) = cmd
-                                .create_interaction_response(&cx.http, |response|) {
-                                    response
-                                        .kind(InteractionResponseType::)
-                                }
-                        } else {*/
-                            if let Err(e) = cmd
-                                .create_interaction_response(&cx.http, |response| {
-                                    response
-                                        .kind(InteractionResponseType::ChannelMessageWithSource)
-                                        .interaction_response_data(|message| message.content(content.get_text()))
-                                })
-                                .await
-                            {
-                                debug!("Cannot respond to slash command: {}", e);
-                                debug!("Debug dump: {:?}", content.get_text())
-                            }
-                        //}
+                        if let Err(e) = cmd
+                            .create_interaction_response(&cx.http, |response| {
+                                response
+                                    .kind(InteractionResponseType::ChannelMessageWithSource)
+                                    .interaction_response_data(|message| message.content(content.get_text()))
+                            })
+                            .await
+                        {
+                            debug!("Cannot respond to slash command: {}", e);
+                            debug!("Debug dump: {:?}", content.get_text())
+                        }
                     }
                 }
             }
@@ -357,10 +340,6 @@ impl<'a> EventHandler for Handler {
                 }
             }
 
-            /*let mut content = match cmd.data.custom_id.as_str() {
-                "button-delete-confirm" | "button-delete-cancel" | "gold-transaction-confirm" | "gold-transaction-cancel" | "currency-transaction-confirm" | "currency-transaction-cancel" | "recreate-database-confirm" | "recreate-database-cancel" => self.currency_handler.handle_component(&cmd, &self.custom_data).await,
-                _ => CommandResponseObject::text("Not handled :(")
-            };*/
             match cmd.message.delete(&cx.http).await {
                  Ok(_) => {},
                  Err(e) => debug!("Error occurred deleting message: {e:?}")
@@ -407,18 +386,6 @@ impl<'a> EventHandler for Handler {
     async fn ready(&self, cx: Context, ready: Ready) {
         info!("Bot `{}` is up and running!", ready.user.name);
 
-        /*let command_currency = Command::create_global_application_command(&cx.http, |command| {
-            commands::currency::register(command)
-        })
-        .await;
-
-        let command_meta = Command::create_global_application_command(&cx.http, |command| {
-            commands::meta::register(command)
-        })
-        .await;*/
-
-        let guild_id = GuildId(self.secrets.get("DISCORD_GUILD_ID").unwrap().parse().unwrap());
-
         let mut sub_option_vec = vec![];
         for sub_option in &self.application_command_handlers {
             let sub_option_lock = sub_option.lock().await;
@@ -436,37 +403,29 @@ impl<'a> EventHandler for Handler {
             sub_option_vec.push(opt);
         }
 
-        match guild_id.set_application_commands(&cx.http, |command| {
-            command
-                .create_application_command(|command| {
-                    let mut cmd = command
-                        .name("currency")
-                        .description("Manage and view currencies and their circulation levels");
-                    for sub_option in sub_option_vec {
-                        cmd = cmd
-                            .add_option(sub_option.clone())
-                    }
-                    cmd
-                })
-                .create_application_command(|command| commands::meta::register(command))
+        match Command::create_global_application_command(&cx.http, |command| {
+            let mut cmd = command
+                .name("currency")
+                .description("Manage and view currencies and their circulation levels");
+            for sub_option in sub_option_vec.clone() {
+                cmd = cmd
+                    .add_option(sub_option.clone())
+            }
+            cmd
         }).await {
             Ok(_) => {},
-            Err(e) => error!("Error occurred setting application commands: {e:?}")
+            Err(e) => error!("Error occurred setting application command `currency`: {e:?}")
+        };
+        match Command::create_global_application_command(&cx.http, |command| {
+            commands::meta::register(command)
+        }).await {
+            Ok(_) => {},
+            Err(e) => error!("Error occurred setting application command `economist`: {e:?}")
         };
     }
 }
 
 async fn sqlx_init(pool: &sqlx::postgres::PgPool) -> Result<(), sqlx::Error> {
-    /*let pool = MySqlPoolOptions::new()
-        .max_connections(2)
-        .connect(format!(
-                "mysql://{0}:{1}@{2}/{3}",
-                env::var("MYSQL_DATABASE_USER").unwrap(),
-                env::var("MYSQL_DATABASE_PASSWORD").unwrap(),
-                env::var("MYSQL_DATABASE_URL").unwrap(),
-                env::var("MYSQL_DATABASE_NAME").unwrap()).as_str())
-        .await?;*/
-
     let postgres_version: String = sqlx::query("SELECT version()").fetch_one(pool).await?.try_get("version")?; 
 
     info!("PostgreSQL version: {}", postgres_version);
@@ -519,24 +478,5 @@ async fn sqlx_init(pool: &sqlx::postgres::PgPool) -> Result<(), sqlx::Error> {
 }
 
 pub async fn get_sql_connection(url: String) -> Result<sqlx::any::AnyConnection, sqlx::Error> {
-    /*sqlx::mysql::MySqlConnection::connect(format!(
-            "mysql://{0}:{1}@{2}/{3}",
-            env::var("MYSQL_DATABASE_USER").unwrap(),
-            env::var("MYSQL_DATABASE_PASSWORD").unwrap(),
-            env::var("MYSQL_DATABASE_URL").unwrap(),
-            env::var("MYSQL_DATABASE_NAME").unwrap()).as_str())
-    .await*/
     sqlx::any::AnyConnection::connect(url.as_str()).await
 }
-
-/*async fn generate_reports(database_url: String) {
-    let mut conn = get_sql_connection(database_url).await.unwrap();
-
-    let mut currency_codes = sqlx::query("SELECT currency_code, currency_id FROM currencies;")
-        .fetch(&mut conn);
-
-    while let Some(currency_code) = currency_codes.try_next().await.unwrap() {
-        let code: String = currency_code.try_get("currency_code").unwrap();
-        let id: i64 = currency_code.try_get("currency_id").unwrap();
-    }
-}*/
