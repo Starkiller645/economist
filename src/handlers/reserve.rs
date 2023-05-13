@@ -62,7 +62,11 @@ impl ApplicationCommandHandler for ReserveHandler {
         self.transaction_initiator = data.user.clone();
 
         match query_agent.get_currency_data(currency_code.clone()).await {
-            Ok(data) => Ok(self.generate_command_response(data, amount)),
+            Ok(currency_data) => if data.user.name == currency_data.owner {
+                Ok(self.generate_command_response(currency_data, amount))
+            } else {
+                Err("Error: you are not the owner of this currency, and therefore cannot modify it".into())
+            },
             Err(e) => Err(format!("An error occured while performing a database lookup: {e:?}"))
         }
     }

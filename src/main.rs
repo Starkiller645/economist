@@ -437,6 +437,7 @@ async fn sqlx_init(pool: &sqlx::postgres::PgPool) -> Result<(), sqlx::Error> {
         state TEXT NOT NULL,
         circulation BIGINT NOT NULL,
         reserves BIGINT NOT NULL,
+        owner TEXT NOT NULL,
         value DOUBLE PRECISION GENERATED ALWAYS AS (
             CASE WHEN reserves <= 0 THEN 0
                  WHEN circulation <= 0 THEN 0 

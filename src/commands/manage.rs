@@ -20,7 +20,7 @@ impl DBManager {
         }
     }
 
-    pub async fn add_currency(&self, currency_code: String, currency_name: String, circulation: i64, gold_reserve: i64, state: String) -> Result<CurrencyData, sqlx::Error> {
+    pub async fn add_currency(&self, currency_code: String, currency_name: String, circulation: i64, gold_reserve: i64, state: String, owner: String) -> Result<CurrencyData, sqlx::Error> {
         match sqlx::query("INSERT INTO currencies(currency_code, currency_name, circulation, reserves, state) VALUES ($1, $2, $3, $4, $5) RETURNING currency_id;")
             .bind(currency_code.clone())
             .bind(currency_name.clone())
@@ -37,7 +37,8 @@ impl DBManager {
                         circulation,
                         value: gold_reserve as f64 / circulation as f64,
                         reserves: gold_reserve,
-                        state
+                        state,
+                        owner
                     })   
                 },
                 Err(e) => Err(e)
@@ -185,6 +186,7 @@ impl DBManager {
         state TEXT NOT NULL,
         circulation BIGINT NOT NULL,
         reserves BIGINT NOT NULL,
+        owner TEXT NOT NULL,
         value DOUBLE PRECISION GENERATED ALWAYS AS (
             CASE WHEN reserves <= 0 THEN 0
                  WHEN circulation <= 0 THEN 0 

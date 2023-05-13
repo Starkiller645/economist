@@ -36,7 +36,8 @@ impl ApplicationCommandHandler for CreateHandler {
             currency_name.clone(),
             initial_circulation,
             initial_reserves,
-            currency_state.clone()
+            currency_state.clone(),
+            data.user.name.clone()
         ).await {
             Ok(d) => d,
             Err(e) => return Err(format!("Error adding currency to database: {e:?}"))

@@ -20,6 +20,7 @@ pub struct DeleteHandler {
 #[async_trait]
 impl ApplicationCommandHandler for DeleteHandler {
     async fn handle_application_command(&mut self, data: &ApplicationCommandInteraction, query_agent: &DBQueryAgent, _manager: &DBManager) -> Result<CommandResponseObject, String> {
+
         let options = match utils::get_options(&data) {
             Ok(o) => o,
             Err(e) => return Err(format!("Error while getting options from command data: {e:?}"))
@@ -35,6 +36,11 @@ impl ApplicationCommandHandler for DeleteHandler {
             Err(_e) => {
                 return Err(format!("Error: could not find the currency code `{currency_code}`"))
             }
+        };
+
+        let user_name = data.user.name.clone();
+        if user_name != currency_data.owner {
+            return Err(format!("Error: you are not the owner of this currency, and therefore cannot modify it"))
         };
 
         let components = CreateComponents::default()

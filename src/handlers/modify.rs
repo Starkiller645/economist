@@ -21,7 +21,7 @@ struct ModifyOptions {
 
 #[async_trait]
 impl ApplicationCommandHandler for ModifyHandler {
-    async fn handle_application_command(&mut self, data: &ApplicationCommandInteraction, _query_agent: &DBQueryAgent, manager: &DBManager) -> Result<CommandResponseObject, String> {
+    async fn handle_application_command(&mut self, data: &ApplicationCommandInteraction, query_agent: &DBQueryAgent, manager: &DBManager) -> Result<CommandResponseObject, String> {
 
         let option_data = match utils::get_options(&data) {
             Ok(o) => o,
@@ -48,6 +48,11 @@ impl ApplicationCommandHandler for ModifyHandler {
         match action.as_str() {
             "code" => {
                 if let Some(old_code) = options.old_code {
+                    match self.verify_user(query_agent, &old_code, data).await {
+                        Ok(verified) => if !verified { return Err("Error: you are not the owner of this currency, and therefore cannot modify it".into()) },
+                        Err(e) => return Err(e)
+                    }
+
                     if let Some(new_code) = options.new_code {
                         final_data = manager.modify_currency_meta(old_code, ModifyMetaType::Code, new_code).await;
                     }
@@ -55,6 +60,11 @@ impl ApplicationCommandHandler for ModifyHandler {
             },
             "state" => {
                 if let Some(code) = options.code {
+                    match self.verify_user(query_agent, &code, data).await {
+                        Ok(verified) => if !verified { return Err("Error: you are not the owner of this currency, and therefore cannot modify it".into()) },
+                        Err(e) => return Err(e)
+                    }
+
                     if let Some(state) = options.state {
                         final_data = manager.modify_currency_meta(code, ModifyMetaType::State, state).await;
                     }
@@ -62,6 +72,11 @@ impl ApplicationCommandHandler for ModifyHandler {
             },
             "name" => {
                 if let Some(code) = options.code {
+                    match self.verify_user(query_agent, &code, data).await {
+                        Ok(verified) => if !verified { return Err("Error: you are not the owner of this currency, and therefore cannot modify it".into()) },
+                        Err(e) => return Err(e)
+                    }
+
                     if let Some(name) = options.name {
                         final_data = manager.modify_currency_meta(code, ModifyMetaType::Name, name).await
                     }
@@ -174,6 +189,19 @@ impl ApplicationCommandHandler for ModifyHandler {
 impl ModifyHandler {
     pub fn new() -> Self {
         ModifyHandler {}
+    }
+
+    async fn verify_user(&self, query_agent: &DBQueryAgent, code: &String, data: &ApplicationCommandInteraction) -> Result<bool, String> {
+        let currency_data = match query_agent.get_currency_data(code.clone()).await {
+            Ok(d) => d,
+            Err(e) => return Err(format!("Error while looking up currency `{code}`: {e:?}"))
+        };
+
+        if currency_data.owner == data.user.name {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     fn parse_options(&self, options: &Vec<CommandDataOption>) -> Result<ModifyOptions, String> {

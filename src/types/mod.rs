@@ -15,6 +15,7 @@ pub struct CurrencyData {
     pub currency_code: String,
     pub circulation: i64,
     pub reserves: i64,
+    pub owner: String,
     pub value: f64,
     pub state: String,
 }
