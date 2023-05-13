@@ -17,7 +17,7 @@
 */
 
 use anyhow::anyhow;
-use tracing::{error, info, debug};
+use tracing::{error, info, debug, warn};
 use serenity::prelude::*;
 use tokio::sync::Mutex;
 use std::fs::create_dir_all;
@@ -78,6 +78,16 @@ async fn serenity(
         }
     };
 
+    let password = match secret_store.get("DATABASE_PASSWORD") {
+        Some(p) => p,
+        None => {
+            warn!("WARNING: you have not set a database password in you Secrets.toml");
+            warn!("         This will allow ANYONE WITH PERMISSIONS to manage Economist Bot's database");
+            warn!("         You should change this ASAP.");
+            String::from("")
+        }
+    };
+
     info!("Starting workers...");
     let pool_clone = pool.clone();
     let (_tx, rx) = futures::channel::mpsc::channel(8);
@@ -93,7 +103,7 @@ async fn serenity(
     let delete_handler = Arc::new(Mutex::new(delete::DeleteHandler::new()));
     let modify_handler = Arc::new(Mutex::new(modify::ModifyHandler::new()));
     let records_handler = Arc::new(Mutex::new(records::RecordsHandler::new()));
-    let database_handler = Arc::new(Mutex::new(database::DatabaseHandler::new()));
+    let database_handler = Arc::new(Mutex::new(database::DatabaseHandler::new(password)));
 
     let cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>> = vec![
         circulation_handler.clone(),
@@ -110,10 +120,13 @@ async fn serenity(
         circulation_handler,
         reserve_handler,
         delete_handler,
+    ];
+
+    let modal_handlers: Vec<Arc<Mutex<dyn ModalSubmitHandler + Send + Sync>>> = vec![
         database_handler
     ];
 
-    let client = match Client::builder(&discord_token, intents).event_handler(Handler::new(secret_store, pool, cmd_handlers, interaction_handlers)).await{
+    let client = match Client::builder(&discord_token, intents).event_handler(Handler::new(secret_store, pool, cmd_handlers, interaction_handlers, modal_handlers)).await{
         Ok(c) => c,
         Err(e) => return Err(anyhow!("Error creating client: {e:?}").into())
     };
@@ -128,7 +141,8 @@ pub struct CommandResponseObject {
     data: Option<String>,
     feedback: Option<String>,
     embed: Option<serenity::builder::CreateEmbed>,
-    ephemeral: bool
+    ephemeral: bool,
+    modal: bool,
 }
 
 
@@ -140,7 +154,8 @@ impl CommandResponseObject {
             data: Some(prompt.into()),
             feedback: None,
             embed: None,
-            ephemeral
+            ephemeral,
+            modal: false
         }
     }
 
@@ -151,7 +166,20 @@ impl CommandResponseObject {
             data: None,
             feedback: None,
             embed: None,
-            ephemeral
+            ephemeral,
+            modal: false
+        }
+    }
+
+    pub fn modal(data: serenity::builder::CreateComponents, custom_id: String) -> Self {
+        CommandResponseObject {
+            interactive: true,
+            interactive_data: Some(data),
+            data: Some(custom_id),
+            feedback: None,
+            embed: None,
+            ephemeral: true,
+            modal: true
         }
     }
 
@@ -162,7 +190,8 @@ impl CommandResponseObject {
             data: Some(display.into()),
             feedback: Some(feedback.into()),
             embed: None,
-            ephemeral
+            ephemeral,
+            modal: false
         }
     }
 
@@ -173,7 +202,8 @@ impl CommandResponseObject {
             data: Some(data.into()),
             feedback: None,
             embed: None,
-            ephemeral: false
+            ephemeral: false,
+            modal: false
         }
     }
 
@@ -184,7 +214,8 @@ impl CommandResponseObject {
             data: None,
             feedback: None,
             embed: Some(data),
-            ephemeral: false
+            ephemeral: false,
+            modal: false
         }
     }
     
@@ -192,10 +223,11 @@ impl CommandResponseObject {
         CommandResponseObject {
             interactive: false,
             interactive_data: None,
-            data: Some(format!("Economist Bot encountered an error processing a command: {data}")),
+            data: Some(format!("Economist Bot encountered an error processing a command: \n`{data}`")),
             feedback: None,
             embed: None,
-            ephemeral: true
+            ephemeral: true,
+            modal: false
         }
     }
 
@@ -205,6 +237,10 @@ impl CommandResponseObject {
 
     pub fn is_ephemeral(&self) -> bool {
         self.ephemeral
+    }
+
+    pub fn is_modal(&self) -> bool {
+        self.modal
     }
 
     pub fn get_text(&self) -> String {
@@ -232,18 +268,20 @@ struct Handler {
     db_manager: DBManager,
     query_agent: DBQueryAgent,
     application_command_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>,
-    interaction_response_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>
+    interaction_response_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>,
+    modal_submit_handlers: Vec<Arc<Mutex<dyn ModalSubmitHandler + Send + Sync>>>
 }
 
 impl Handler {
-    fn new(_secrets: SecretStore, pool: sqlx::postgres::PgPool, cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>, interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>) -> Self {
+    fn new(_secrets: SecretStore, pool: sqlx::postgres::PgPool, cmd_handlers: Vec<Arc<Mutex<dyn ApplicationCommandHandler + Send + Sync>>>, interaction_handlers: Vec<Arc<Mutex<dyn InteractionResponseHandler + Send + Sync>>>, modal_handlers: Vec<Arc<Mutex<dyn ModalSubmitHandler + Send + Sync>>>) -> Self {
         let db_manager = DBManager::new(pool.clone());
         let query_agent = DBQueryAgent::new(pool);
         Handler {
             db_manager,
             query_agent,
             application_command_handlers: cmd_handlers,
-            interaction_response_handlers: interaction_handlers
+            interaction_response_handlers: interaction_handlers,
+            modal_submit_handlers: modal_handlers
         }
     }
 }
@@ -276,7 +314,21 @@ impl<'a> EventHandler for Handler {
                 }
             }
 
-            if let Some(embed) = content.embed.clone() {
+            if content.is_modal() {
+                if let Err(e) = cmd
+                    .create_interaction_response(&cx.http, |response| {
+                        response
+                            .kind(InteractionResponseType::Modal)
+                            .interaction_response_data(|message| {
+                                message
+                                    .set_components(content.get_interactive_data().clone())
+                                    .custom_id(content.get_text().clone())
+                                    .title(cmd.data.name.clone())
+                            })
+                    }).await {
+                        error!("Cannot create modal response to slash command: {e:?}")
+                    }
+            } else if let Some(embed) = content.embed.clone() {
                 if let Err(e) = cmd
                     .create_interaction_response(&cx.http, |response| {
                         response
@@ -314,7 +366,11 @@ impl<'a> EventHandler for Handler {
                             .create_interaction_response(&cx.http, |response| {
                                 response
                                     .kind(InteractionResponseType::ChannelMessageWithSource)
-                                    .interaction_response_data(|message| message.content(content.get_text()))
+                                    .interaction_response_data(|message| 
+                                                               message
+                                                               .content(content.get_text())
+                                                               .ephemeral(content.is_ephemeral())
+                                    )
                             })
                             .await
                         {
@@ -360,6 +416,66 @@ impl<'a> EventHandler for Handler {
                             debug!("Cannot respond to slash command: {}", e);
                             debug!("Debug dump: {:?}", content.get_interactive_data())
                         }
+                    /*if let Err(e) = cmd.channel_id.say(&cx.http, content.get_text()).await {
+                        debug!("Could not post global message: {e:?}")
+                    }*/
+                }
+                false => {
+                    if let Err(e) = cmd
+                        .create_interaction_response(&cx.http, |response| {
+                            response
+                                .kind(InteractionResponseType::ChannelMessageWithSource)
+                                .interaction_response_data(|message| message
+                                                           .content(content.get_text())
+                                                           .ephemeral(content.is_ephemeral()))
+                        })
+                        .await
+                    {
+                        debug!("Cannot respond to slash command: {}", e);
+                    }
+                    if let Err(e) = cmd.channel_id.say(&cx.http, content.get_text()).await {
+                        debug!("Could not post global message: {e:?}")
+                    }
+                }
+            }
+        } else if let Interaction::ModalSubmit(cmd) = interaction {
+            let mut content = CommandResponseObject::error("Got no response from interaction response handler");
+            info!("Command data: {cmd:#?}");
+            info!("Matching on callsign: {}", cmd.data.custom_id.clone());
+            for interaction_response in &self.modal_submit_handlers {
+                let interaction_pattern;
+                let guard = interaction_response.lock().await;
+                interaction_pattern = guard.get_pattern();
+                for interaction_callsign in interaction_pattern.clone() {
+                    info!("Checking callsign {interaction_callsign}");
+                    if interaction_callsign == cmd.data.custom_id.as_str() {
+                        info!("Got a match!");
+                        content = match guard.handle_modal_submit(&cmd, &self.query_agent, &self.db_manager).await {
+                            Ok(data) => {
+                                info!("Data: {data:#?}");
+                                data
+                            },
+                            Err(e) => CommandResponseObject::error(format!("{e:?}"))
+                        }
+                    }
+                }
+            }
+            match content.is_interactive() {
+                true => {
+                    if let Err(e) = cmd
+                        .create_interaction_response(&cx.http, |response| {
+                            response
+                                .kind(InteractionResponseType::ChannelMessageWithSource)
+                                .interaction_response_data(|message| message
+                                                           .set_components(content.get_interactive_data().clone())
+                                                           .content(content.get_feedback().clone())
+                                                           .ephemeral(content.is_ephemeral())
+                                                           .custom_id(cmd.data.custom_id.clone())
+                                                           .title(cmd.data.custom_id.clone()))
+                        }).await {
+                            debug!("Cannot respond to slash command: {}", e);
+                            debug!("Debug dump: {:?}", content.get_interactive_data())
+                        }
                     if let Err(e) = cmd.channel_id.say(&cx.http, content.get_text()).await {
                         debug!("Could not post global message: {e:?}")
                     }
@@ -369,15 +485,18 @@ impl<'a> EventHandler for Handler {
                         .create_interaction_response(&cx.http, |response| {
                             response
                                 .kind(InteractionResponseType::ChannelMessageWithSource)
-                                .interaction_response_data(|message| message.content(content.get_text()))
+                                .interaction_response_data(|message| message
+                                                           .content(content.get_text())
+                                                           .ephemeral(content.is_ephemeral())
+                                )
                         })
                         .await
                     {
                         debug!("Cannot respond to slash command: {}", e);
                     }
-                    if let Err(e) = cmd.channel_id.say(&cx.http, content.get_text()).await {
+                    /*if let Err(e) = cmd.channel_id.say(&cx.http, content.get_text()).await {
                         debug!("Could not post global message: {e:?}")
-                    }
+                    }*/
                 }
             }
         }

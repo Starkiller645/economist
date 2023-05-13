@@ -5,6 +5,7 @@ use serenity::model::prelude::interaction::application_command::ApplicationComma
 use serenity::model::prelude::command::CommandOptionType;
 use serenity::builder::CreateApplicationCommandOption;
 use serenity::model::application::interaction::message_component::MessageComponentInteraction;
+use serenity::model::application::interaction::modal::ModalSubmitInteraction;
 use crate::commands::query::*;
 use crate::commands::manage::*;
 
@@ -62,5 +63,11 @@ pub trait ApplicationCommandHandler {
 #[async_trait]
 pub trait InteractionResponseHandler {
     async fn handle_interaction_response(&self, data: &MessageComponentInteraction, query_agent: &DBQueryAgent, manager: &DBManager) -> Result<CommandResponseObject, String>;
+    fn get_pattern(&self) -> Vec<&str>;
+}
+
+#[async_trait]
+pub trait ModalSubmitHandler {
+    async fn handle_modal_submit(&self, data: &ModalSubmitInteraction, query_agent: &DBQueryAgent, manager: &DBManager) -> Result<CommandResponseObject, String>;
     fn get_pattern(&self) -> Vec<&str>;
 }

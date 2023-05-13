@@ -21,12 +21,13 @@ impl DBManager {
     }
 
     pub async fn add_currency(&self, currency_code: String, currency_name: String, circulation: i64, gold_reserve: i64, state: String, owner: String) -> Result<CurrencyData, sqlx::Error> {
-        match sqlx::query("INSERT INTO currencies(currency_code, currency_name, circulation, reserves, state) VALUES ($1, $2, $3, $4, $5) RETURNING currency_id;")
+        match sqlx::query("INSERT INTO currencies(currency_code, currency_name, circulation, reserves, state, owner) VALUES ($1, $2, $3, $4, $5, $6) RETURNING currency_id;")
             .bind(currency_code.clone())
             .bind(currency_name.clone())
             .bind(circulation)
             .bind(gold_reserve)
             .bind(state.clone())
+            .bind(owner.clone())
             .fetch_one(&self.pool).await {
                 Ok(row) => {
                     let currency_id = row.try_get("currency_id")?;

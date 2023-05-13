@@ -5,12 +5,18 @@ use crate::utils;
 use crate::CommandResponseObject;
 use async_trait::async_trait;
 use serenity::model::application::interaction::message_component::MessageComponentInteraction;
+use serenity::model::application::component::ComponentType::InputText;
+use serenity::model::application::component::ActionRowComponent;
 use serenity::model::application::component::ButtonStyle;
 use serenity::builder::{CreateComponents, CreateApplicationCommandOption};
+use serenity::model::application::component::InputTextStyle;
 use serenity::model::prelude::command::CommandOptionType;
 use serenity::model::prelude::interaction::application_command::ApplicationCommandInteraction;
+use serenity::model::application::interaction::modal::ModalSubmitInteraction;
 
-pub struct DatabaseHandler {}
+pub struct DatabaseHandler {
+    db_password: String
+}
 
 #[async_trait]
 impl ApplicationCommandHandler for DatabaseHandler {
@@ -26,7 +32,7 @@ impl ApplicationCommandHandler for DatabaseHandler {
         };
 
         match action.name.as_str() {
-            "recreate" => {
+            /*"recreate" => {
                 Ok(CommandResponseObject::interactive(CreateComponents::default()
                     .create_action_row(|action_row| {
                         action_row
@@ -47,7 +53,25 @@ impl ApplicationCommandHandler for DatabaseHandler {
                     true
                     )
                 )
-            },
+            },*/
+            "recreate" => {
+                Ok(CommandResponseObject::modal(
+                    CreateComponents::default()
+                        .create_action_row(|action_row| {
+                            action_row
+                                .create_input_text(|input_text| {
+                                    input_text
+                                        .custom_id("database-password-input")
+                                        .label("Enter password to delete database")
+                                        .placeholder("Enter password (this is not reversible!)")
+                                        .required(true)
+                                        .style(InputTextStyle::Short)
+                                })
+                        }).clone(),
+                        "database-password-modal".into()
+                    )
+                )
+            }
             _ => {
                 Err("Error: couldn't find the requested subcommand".into())
             }
@@ -68,8 +92,8 @@ impl ApplicationCommandHandler for DatabaseHandler {
 }
 
 #[async_trait]
-impl InteractionResponseHandler for DatabaseHandler {
-    async fn handle_interaction_response(&self, data: &MessageComponentInteraction, _query_agent: &DBQueryAgent, manager: &DBManager) -> Result<CommandResponseObject, String> {
+impl ModalSubmitHandler for DatabaseHandler {
+    async fn handle_modal_submit(&self, data: &ModalSubmitInteraction, _query_agent: &DBQueryAgent, manager: &DBManager) -> Result<CommandResponseObject, String> {
 
         Ok(match data.data.custom_id.as_str() {
             "recreate-database-confirm" => match manager.danger_recreate_database().await {
@@ -78,17 +102,46 @@ impl InteractionResponseHandler for DatabaseHandler {
                 }
 
             "recreate-database-cancel" => CommandResponseObject::interactive_with_feedback(CreateComponents::default(), "Cancelled deleting database (this is probably a good thing)", "", true),
+            "database-password-modal" => {
+                let components = data.data.components.clone();
+                
+                let action_row = match components.get(0) {
+                    Some(ar) => ar,
+                    None => return Err("Error while building response: could not get input data".into())
+                };
+
+                let input_component = match action_row.components.get(0) {
+                    Some(c) => c,
+                    None => return Err("Error while building response: could not get action row".into())
+                };
+
+                if let ActionRowComponent::InputText(input_text) = input_component {
+                    let password = input_text.value.clone();
+
+                    if password == self.db_password {
+                        match manager.danger_recreate_database().await {
+                            Ok(_) => return Ok(CommandResponseObject::interactive_with_feedback(CreateComponents::default(), "Database successfully recreated", format!("{0} recreated the Economist Bot database. All stored data has been lost.", data.user), true)),
+                            Err(e) => return Err(format!("Error recreating database (this is probably a good thing): {e:?}"))
+                        }
+                    } else {
+                        return Err("Error: incorrect password for database".into())
+                    }
+                } else {
+                    return Err("Error: couldn't find input text in components".into())
+                }
+            },
             _ => return Err("Error: unknown custom id".into())
         })
     }
-
     fn get_pattern(&self) -> Vec<&str> {
-        vec!["recreate-database-confirm", "recreate-database-cancel"]
+        vec!["recreate-database-confirm", "recreate-database-cancel", "database-password-modal"]
     }
 }
 
 impl DatabaseHandler {
-    pub fn new() -> Self {
-        DatabaseHandler {}
+    pub fn new(db_password: String) -> Self {
+        DatabaseHandler {
+            db_password
+        }
     }
 }
